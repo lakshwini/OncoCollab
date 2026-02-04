@@ -1,53 +1,66 @@
 import { Bell, Calendar, FileText, Users, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { useLanguage } from '../i18n';
 
 interface NotificationsPanelProps {
   onClose: () => void;
 }
 
 export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
+  const { language, t } = useLanguage();
+
   const notifications = [
     {
       id: '1',
       type: 'meeting',
       icon: Calendar,
-      title: 'Rappel : Réunion RCP demain à 10h',
-      time: 'Il y a 2h',
+      titleKey: 'rcpReminder',
+      time: language === 'fr' ? 'Il y a 2h' : '2h ago',
       unread: true,
     },
     {
       id: '2',
       type: 'document',
       icon: FileText,
-      title: 'Dossier #123 à valider',
-      time: 'Il y a 5h',
+      titleKey: 'dossierToValidate',
+      time: language === 'fr' ? 'Il y a 5h' : '5h ago',
       unread: true,
     },
     {
       id: '3',
       type: 'team',
       icon: Users,
-      title: 'Dr. Laurent a ajouté une annotation',
-      time: 'Hier',
+      titleKey: 'annotationAdded',
+      time: language === 'fr' ? 'Hier' : 'Yesterday',
       unread: false,
     },
     {
       id: '4',
       type: 'meeting',
       icon: Calendar,
-      title: 'Nouvelle réunion programmée',
-      time: 'Il y a 2 jours',
+      titleKey: 'newMeetingScheduled',
+      time: language === 'fr' ? 'Il y a 2 jours' : '2 days ago',
       unread: false,
     },
   ];
+
+  const getNotificationTitle = (key: string) => {
+    const titles: Record<string, string> = {
+      rcpReminder: language === 'fr' ? 'Rappel : Réunion RCP demain à 10h' : 'Reminder: RCP meeting tomorrow at 10am',
+      dossierToValidate: language === 'fr' ? 'Dossier #123 à valider' : 'File #123 to validate',
+      annotationAdded: language === 'fr' ? 'Dr. Laurent a ajouté une annotation' : 'Dr. Laurent added an annotation',
+      newMeetingScheduled: language === 'fr' ? 'Nouvelle réunion programmée' : 'New meeting scheduled',
+    };
+    return titles[key] || key;
+  };
 
   return (
     <div className="absolute right-0 top-12 w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bell className="w-5 h-5 text-gray-700" />
-          <h3 className="text-gray-900">Notifications</h3>
+          <h3 className="text-gray-900">{t.notificationsPanel.title}</h3>
           <Badge variant="secondary" className="ml-2">
             {notifications.filter(n => n.unread).length}
           </Badge>
@@ -76,7 +89,7 @@ export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
                   }`} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-gray-900">{notification.title}</p>
+                  <p className="text-sm text-gray-900">{getNotificationTitle(notification.titleKey)}</p>
                   <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
                 </div>
                 {notification.unread && (
@@ -90,7 +103,7 @@ export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
 
       <div className="p-3 border-t border-gray-200">
         <Button variant="ghost" className="w-full text-sm text-blue-600">
-          Voir toutes les notifications
+          {language === 'fr' ? 'Voir toutes les notifications' : 'View all notifications'}
         </Button>
       </div>
     </div>

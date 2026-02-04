@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -8,6 +8,10 @@ import { UsersModule } from './users/users.module';
 import { MessagesModule } from './messages/messages.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { AuthModule } from './auth/auth.module';
+import { DoctorsModule } from './doctors/doctors.module';
+import { PatientsModule } from './patients/patients.module';
+import { RolesModule } from './roles/roles.module';
+import { VideoModule } from './video/video.module';
 
 @Module({
   imports: [
@@ -15,21 +19,29 @@ import { AuthModule } from './auth/auth.module';
     ConfigModule.forRoot({ isGlobal: true }),
 
     // Configuration de la connexion PostgreSQL
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'laksh',     // Ton utilisateur Mac
-      password: 'laksh',     // Ton mot de passe d'après le .env
-      database: 'OncoCollab', // Nom exact de ta base SQL
-      autoLoadEntities: true, // Charge automatiquement User, Message, Room, etc.
-      synchronize: true,      // Crée les tables manquantes automatiquement
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        host: configService.get('POSTGRES_HOST'),
+        port: +configService.get('POSTGRES_PORT'),
+        username: configService.get('POSTGRES_USER'),
+        password: configService.get('POSTGRES_PASSWORD'),
+        database: configService.get('POSTGRES_DB'),
+        autoLoadEntities: true,
+        synchronize: false, // Tables already exist
+      }),
+      inject: [ConfigService],
     }),
 
     UsersModule,
     MessagesModule,
     RoomsModule,
     AuthModule,
+    DoctorsModule,
+    PatientsModule,
+    RolesModule,
+    VideoModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -2,7 +2,7 @@
 
 ## Vue d'ensemble
 
-OncoLlab intègre désormais un système complet de gestion des pré-requis pour garantir que chaque spécialiste arrive préparé aux réunions RCP. Ce système améliore l'efficacité des visioconférences et la coordination entre spécialistes.
+OncoCollab intègre désormais un système complet de gestion des pré-requis pour garantir que chaque spécialiste arrive préparé aux réunions RCP. Ce système améliore l'efficacité des visioconférences et la coordination entre spécialistes.
 
 ---
 
@@ -320,10 +320,10 @@ interface ParticipantWithPrerequisites {
 Pour toute question concernant ces fonctionnalités :
 - Consulter la section "Aide" dans l'application
 - Accéder au guide interactif (icône ?)
-- Contacter l'équipe support OncoLlab
+- Contacter l'équipe support OncoCollab
 
 ---
 
 **Version** : 1.0  
 **Date de mise à jour** : Janvier 2026  
-**Auteur** : Équipe OncoLlab
+**Auteur** : Équipe OncoCollab

@@ -1,755 +1,1439 @@
-import { useState } from 'react';
-import { 
-  X, 
-  Mic, 
-  MicOff, 
-  Video, 
-  VideoOff, 
-  Phone, 
-  Share2, 
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { ClientToServerEvents, ServerToClientEvents } from '../types/video';
+import { API_CONFIG } from '../config/api.config';
+import { User } from '../App';
+import { useLanguage } from '../i18n';
+
+type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+import {
+  X,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Phone,
+  Share2,
   MessageSquare,
   Users,
-  Send,
-  Paperclip,
+  Send,  
   FileText,
   FolderOpen,
-  PenTool,
-  Type,
   Image as ImageIcon,
-  Square,
-  Circle,
   Maximize2,
   ZoomIn,
   ZoomOut,
   Download,
+  MoreVertical,
+  Copy,
+  ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  File,
-  CheckCircle2,
   Clock,
-  Filter
+  Calendar,
+  User as UserIcon,
+  Activity,
+  Stethoscope,
+  PanelLeftClose,
+  PanelRightClose,
+  Upload,
+  Search,
+  RotateCcw,
+  Square,
+  Circle,
+  Type,
+  MousePointer,
+  Pencil,
 } from 'lucide-react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Avatar, AvatarFallback } from './ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Badge } from './ui/badge';
-import { ScrollArea } from './ui/scroll-area';
-import { Separator } from './ui/separator';
-import { ParticipantCard, type ParticipantWithPrerequisites, type Prerequisite } from './ParticipantCard';
-import { 
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel
-} from './ui/dropdown-menu';
+
+interface InitialSettings {
+  micEnabled?: boolean;
+  videoEnabled?: boolean;
+  selectedMicrophone?: string;
+  selectedCamera?: string;
+  selectedSpeaker?: string;
+  audioMode?: 'computer' | 'phone' | 'room' | 'none';
+}
 
 interface VideoConferenceAdvancedProps {
   onClose: () => void;
   patientName?: string;
   meetingTitle?: string;
+  authToken?: string | null;
+  roomId?: string;
+  serverUrl?: string;
+  currentUser?: User | null;
+  initialSettings?: InitialSettings;
 }
 
-export function VideoConferenceAdvanced({ 
+// Colors used throughout the component
+const C = {
+  bg: '#1a1a1a',
+  bgHeader: '#252525',
+  bgPanel: '#202020',
+  bgCard: '#2a2a2a',
+  bgCardHover: '#333333',
+  bgControl: '#333333',
+  bgControlHover: '#444444',
+  border: '#333333',
+  borderLight: '#444444',
+  textWhite: '#ffffff',
+  textGray: '#9ca3af',
+  textGrayLight: '#d1d5db',
+  textGrayDark: '#6b7280',
+  textGrayDarker: '#4b5563',
+  blue: '#3b82f6',
+  blueDark: '#1d4ed8',
+  blueLight: '#60a5fa',
+  red: '#ef4444',
+  redDark: '#dc2626',
+  green: '#22c55e',
+  yellow: '#eab308',
+  cyan: '#22d3ee',
+  orange: '#f97316',
+  purple: '#a855f7',
+};
+
+const SERVER_URL = API_CONFIG.WEBSOCKET_URL;
+const ICE_SERVERS = API_CONFIG.ICE_SERVERS;
+
+export function VideoConferenceAdvanced({
   onClose,
-  patientName = "Mme. Dupont",
-  meetingTitle = "RCP - Mme. Dupont"
+  patientName,
+  meetingTitle = "RCP",
+  authToken,
+  roomId,
+  serverUrl,
+  currentUser,
+  initialSettings
 }: VideoConferenceAdvancedProps) {
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState('chat');
+  const { language } = useLanguage();
+  const currentDoctorName = currentUser?.name || 'Docteur';
+  const currentDoctorRole = currentUser?.role || 'medecin';
+  const currentDoctorInitials = currentUser?.name
+    ? currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()
+    : 'DR';
+
+  const displayPatientName = patientName || 'Patient';
+  const ROOM_ID = roomId || meetingTitle.replace(/\s+/g, '-').toLowerCase();
+  const DYNAMIC_SERVER_URL = serverUrl || SERVER_URL;
+
+  // Media states
+  const [micEnabled, setMicEnabled] = useState(initialSettings?.micEnabled ?? true);
+  const [videoEnabled, setVideoEnabled] = useState(initialSettings?.videoEnabled ?? true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+
+  // UI states
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [leftPanelTab, setLeftPanelTab] = useState<'patient' | 'documents' | 'imagery'>('patient');
+  const [rightPanelTab, setRightPanelTab] = useState<'chat' | 'participants'>('chat');
   const [chatMessage, setChatMessage] = useState('');
-  const [selectedTool, setSelectedTool] = useState<'cursor' | 'pen' | 'text' | 'rectangle' | 'circle'>('cursor');
-  const [showImagery, setShowImagery] = useState(true);
-  const [documentsPanelOpen, setDocumentsPanelOpen] = useState(false);
-  const [selectedParticipant, setSelectedParticipant] = useState<ParticipantWithPrerequisites | null>(null);
-  const [showParticipantCard, setShowParticipantCard] = useState(false);
-  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'video' | 'imagery'>('video');
+  const [selectedImagery, setSelectedImagery] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [annotationTool, setAnnotationTool] = useState<'cursor' | 'pen' | 'text' | 'rectangle' | 'circle'>('cursor');
+  const [searchDoc, setSearchDoc] = useState('');
 
-  const participants: ParticipantWithPrerequisites[] = [
-    { 
-      id: '1', 
-      name: 'Vous (Dr. Martin)', 
-      role: 'Radiologue', 
-      initials: 'DM', 
-      active: true, 
-      micOn: true, 
-      videoOn: true, 
-      status: 'En ligne',
-      email: 'a.martin@oncollab.fr',
-      specialization: 'Imagerie médicale',
-      prerequisites: [
-        { id: 'p1-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'completed', category: 'Préparation générale' },
-        { id: 'p1-2', title: 'Analyser IRM cérébrale', description: 'Examen du 12/05/24', status: 'completed', category: 'Examens médicaux' },
-        { id: 'p1-3', title: 'Préparer les annotations', description: 'Zones suspectes à signaler', status: 'completed', category: 'Examens médicaux' },
-      ]
-    },
-    { 
-      id: '2', 
-      name: 'Dr. Bernard', 
-      role: 'Oncologue', 
-      initials: 'DB', 
-      active: true, 
-      micOn: true, 
-      videoOn: false, 
-      status: 'En ligne',
-      email: 's.bernard@oncollab.fr',
-      specialization: 'Oncologie médicale',
-      prerequisites: [
-        { id: 'p2-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'completed', category: 'Préparation générale' },
-        { id: 'p2-2', title: 'Analyser les bilans biologiques', description: 'Résultats du 10/05/24', status: 'completed', category: 'Examens médicaux' },
-        { id: 'p2-3', title: 'Préparer protocole de traitement', description: 'Recommandations thérapeutiques', status: 'pending', category: 'Recommandations' },
-        { id: 'p2-4', title: 'Mise à jour du compte-rendu', description: 'Synthèse des consultations', status: 'pending', category: 'Documentation' },
-      ]
-    },
-    { 
-      id: '3', 
-      name: 'Dr. Lefevre', 
-      role: 'Chirurgien', 
-      initials: 'DL', 
-      active: true, 
-      micOn: false, 
-      videoOn: true, 
-      status: 'En ligne',
-      email: 'p.lefevre@oncollab.fr',
-      specialization: 'Chirurgie oncologique',
-      prerequisites: [
-        { id: 'p3-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'completed', category: 'Préparation générale' },
-        { id: 'p3-2', title: 'Évaluer la faisabilité chirurgicale', description: 'Analyse des images et du bilan', status: 'completed', category: 'Recommandations' },
-        { id: 'p3-3', title: 'Préparer les options opératoires', description: 'Différentes approches chirurgicales', status: 'completed', category: 'Recommandations' },
-      ]
-    },
-    { 
-      id: '4', 
-      name: 'Dr. Moreau', 
-      role: 'Pathologiste', 
-      initials: 'DM', 
-      active: true, 
-      micOn: true, 
-      videoOn: true, 
-      status: 'En ligne',
-      email: 'l.moreau@oncollab.fr',
-      specialization: 'Anatomopathologie',
-      prerequisites: [
-        { id: 'p4-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'completed', category: 'Préparation générale' },
-        { id: 'p4-2', title: 'Analyser la biopsie', description: 'Examen histologique complet', status: 'completed', category: 'Examens médicaux' },
-        { id: 'p4-3', title: 'Rédiger le compte-rendu anatomopathologique', description: 'Synthèse des résultats', status: 'completed', category: 'Documentation' },
-      ]
-    },
-    { 
-      id: '5', 
-      name: 'Dr. Rossi', 
-      role: 'Radiologue', 
-      initials: 'DR', 
-      active: true, 
-      micOn: true, 
-      videoOn: true, 
-      status: 'En ligne',
-      email: 'm.rossi@oncollab.fr',
-      specialization: 'Médecine nucléaire',
-      prerequisites: [
-        { id: 'p5-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'pending', category: 'Préparation générale' },
-        { id: 'p5-2', title: 'Analyser TEP Scan', description: 'Examen du 02/05/24', status: 'completed', category: 'Examens médicaux' },
-        { id: 'p5-3', title: 'Préparer la synthèse imagerie', description: 'Comparaison avec examens antérieurs', status: 'pending', category: 'Examens médicaux' },
-      ]
-    },
-    { 
-      id: '6', 
-      name: 'Dr. Benali', 
-      role: 'Oncologue', 
-      initials: 'SB', 
-      active: true, 
-      micOn: true, 
-      videoOn: false, 
-      status: 'En ligne',
-      email: 's.benali@oncollab.fr',
-      specialization: 'Radiothérapie',
-      prerequisites: [
-        { id: 'p6-1', title: 'Consulter le dossier patient', description: 'Révision complète du dossier médical', status: 'completed', category: 'Préparation générale' },
-        { id: 'p6-2', title: 'Évaluer les possibilités de radiothérapie', description: 'Analyse du volume tumoral', status: 'pending', category: 'Recommandations' },
-      ]
-    },
-  ];
+  // WebRTC
+  const socketRef = useRef<AppSocket | null>(null);
+  const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
-  const chatMessages = [
-    { id: '1', user: 'Dr. Bernard', time: '10:05', message: 'Bonjour à tous. Concentrons-nous sur la lésion visible sur la coupe axiale 12.' },
-    { id: '2', user: 'Vous', time: '10:06', message: "Bien reçu. J'affiche l'image et j'annote la zone en question." },
-  ];
+  const [myId, setMyId] = useState<string | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [connectedUsers, setConnectedUsers] = useState<string[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<string>("Connexion...");
 
-  const imageryFiles = [
-    { id: '1', name: 'IRM cérébrale 12/05/24', type: 'IRM', status: 'Ouvert', doctor: 'Dr. Martin' },
-    { id: '2', name: 'TEP Scan 02/05/24', type: 'TEP', status: 'Actif', doctor: 'Dr. Rossi' },
-    { id: '3', name: 'Biopsie_Path.docx', type: 'Document', status: 'Ouvert', doctor: '' },
-  ];
+  // Chat
+  const [chatMessages, setChatMessages] = useState<{ id: string; user: string; time: string; message: string }[]>([]);
 
+  // Mock data
   const documents = [
-    { id: '1', name: 'Compte-rendu anatomopathologique', owner: 'Dr. Moreau', shared: true },
-    { id: '2', name: 'Rapport de biopsie', owner: 'Dr. Bernard', shared: true },
-    { id: '3', name: 'Protocole de chimiothérapie - H. Langevin', owner: 'Dr. Lefevre', shared: false },
+    { id: '1', name: 'Compte-rendu anatomopathologique', type: 'pdf', date: '12/01/2026', owner: 'Dr. Moreau', size: '2.4 MB' },
+    { id: '2', name: 'Bilan sanguin complet', type: 'pdf', date: '10/01/2026', owner: 'Laboratoire', size: '1.1 MB' },
+    { id: '3', name: 'Ordonnance chimiothérapie', type: 'pdf', date: '08/01/2026', owner: 'Dr. Bernard', size: '0.5 MB' },
+    { id: '4', name: 'Notes de consultation', type: 'doc', date: '05/01/2026', owner: currentDoctorName, size: '0.3 MB' },
   ];
+
+  const imageries = [
+    { id: '1', name: 'IRM Cérébrale', type: 'IRM', date: '12/01/2026', slices: 24, status: 'Complet' },
+    { id: '2', name: 'Scanner Thoracique', type: 'CT', date: '10/01/2026', slices: 48, status: 'Complet' },
+    { id: '3', name: 'TEP Scan', type: 'PET', date: '05/01/2026', slices: 32, status: 'Complet' },
+    { id: '4', name: 'Échographie abdominale', type: 'US', date: '02/01/2026', slices: 12, status: 'Partiel' },
+  ];
+
+  const patientInfo = {
+    id: 'PAT-2026-001',
+    name: displayPatientName,
+    age: 58,
+    gender: 'F',
+    bloodType: 'A+',
+    Cancer: ['Pulmonaire'],
+    diagnosis: 'Cancer pulmonaire - Stade II',
+    lastVisit: '12/01/2026',
+    nextRCP: '03/02/2026',
+  };
+
+  // Stream callbacks
+  const addRemoteStream = useCallback((id: string, stream: MediaStream) => {
+    setRemoteStreams(prev => new Map(prev).set(id, stream));
+  }, []);
+
+  const removeRemoteStream = useCallback((id: string) => {
+    setRemoteStreams(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(id);
+      return newMap;
+    });
+  }, []);
+
+  const toggleMic = useCallback(() => {
+    const newMicState = !micEnabled;
+    console.log('[VideoConf] 🎤 Toggle micro:', micEnabled, '→', newMicState);
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      console.log('[VideoConf] Tracks audio:', audioTracks.length);
+      audioTracks.forEach(track => {
+        track.enabled = newMicState;
+        console.log('[VideoConf]   - Track audio enabled:', track.enabled);
+      });
+    }
+    setMicEnabled(newMicState);
+  }, [micEnabled]);
+
+  const toggleVideo = useCallback(() => {
+    const newVideoState = !videoEnabled;
+    console.log('[VideoConf] 📹 Toggle vidéo:', videoEnabled, '→', newVideoState);
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      console.log('[VideoConf] Tracks vidéo:', videoTracks.length);
+      videoTracks.forEach(track => {
+        track.enabled = newVideoState;
+        console.log('[VideoConf]   - Track vidéo enabled:', track.enabled, 'readyState:', track.readyState);
+      });
+    }
+    setVideoEnabled(newVideoState);
+  }, [videoEnabled]);
+
+  // Use refs for mic/video state so getMedia doesn't change identity on toggle
+  const micEnabledRef = useRef(micEnabled);
+  const videoEnabledRef = useRef(videoEnabled);
+  useEffect(() => { micEnabledRef.current = micEnabled; }, [micEnabled]);
+  useEffect(() => { videoEnabledRef.current = videoEnabled; }, [videoEnabled]);
+
+  const getMedia = useCallback(async () => {
+    try {
+      console.log('[VideoConf] 📷 Demande accès média...');
+      const constraints: MediaStreamConstraints = {
+        video: initialSettings?.selectedCamera
+          ? { deviceId: { exact: initialSettings.selectedCamera }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: initialSettings?.selectedMicrophone
+          ? { deviceId: { exact: initialSettings.selectedMicrophone }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+          : { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('[VideoConf] ✅ Stream obtenu, tracks:', stream.getTracks().length);
+
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = micEnabledRef.current;
+        console.log('[VideoConf]   - Audio track enabled:', track.enabled);
+      });
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = videoEnabledRef.current;
+        console.log('[VideoConf]   - Video track enabled:', track.enabled);
+      });
+
+      setLocalStream(stream);
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        console.log('[VideoConf] ✅ Stream attaché à la vidéo locale');
+      }
+      return stream;
+    } catch (error) {
+      console.error('[VideoConf] ❌ Erreur accès média:', error);
+      return null;
+    }
+  }, [initialSettings?.selectedCamera, initialSettings?.selectedMicrophone]);
+
+  const createPeerConnection = useCallback((targetId: string, stream: MediaStream) => {
+    console.log('[VideoConf] 🔗 Création PeerConnection pour:', targetId);
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+
+    // Gérer les états de connexion
+    pc.onconnectionstatechange = () => {
+      console.log(`[VideoConf] État connexion avec ${targetId}:`, pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        console.warn(`[VideoConf] ⚠️ Connexion ${pc.connectionState} avec ${targetId}`);
+      } else if (pc.connectionState === 'connected') {
+        console.log(`[VideoConf] ✅ Connecté avec ${targetId}`);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[VideoConf] État ICE avec ${targetId}:`, pc.iceConnectionState);
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current) {
+        console.log(`[VideoConf] 🧊 Envoi ICE candidate à ${targetId}`);
+        socketRef.current.emit('sending-ice-candidate', { candidate: event.candidate.toJSON(), toId: targetId });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      console.log(`[VideoConf] 📺 Track reçu de ${targetId}, streams:`, event.streams.length);
+      if (event.streams[0]) {
+        addRemoteStream(targetId, event.streams[0]);
+      }
+    };
+
+    // Ajouter les tracks locaux
+    const tracks = stream.getTracks();
+    console.log(`[VideoConf] ➕ Ajout de ${tracks.length} tracks à la connexion avec ${targetId}`);
+    tracks.forEach(track => {
+      console.log(`[VideoConf]   - Track: ${track.kind}, enabled: ${track.enabled}`);
+      pc.addTrack(track, stream);
+    });
+
+    peersRef.current.set(targetId, pc);
+    return pc;
+  }, [addRemoteStream]);
+
+  // Init media
+  useEffect(() => {
+    getMedia();
+  }, []);
+
+  useEffect(() => {
+    if (localStream && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  // WebSocket signaling
+  useEffect(() => {
+    let mounted = true;
+
+    console.log('[VideoConf] Connexion au serveur:', DYNAMIC_SERVER_URL);
+
+    const socket = io(DYNAMIC_SERVER_URL, {
+      ...API_CONFIG.SOCKET_CONFIG,
+      auth: authToken ? { token: authToken } : undefined,
+    });
+
+    socket.on('connect', async () => {
+      if (!mounted) return;
+      console.log('[VideoConf] ✅ Connecté au serveur, socket ID:', socket.id);
+      setConnectionStatus('Connecté');
+      setMyId(socket.id);
+      if (!localStreamRef.current) await getMedia();
+      socket.emit('join-room', ROOM_ID);
+      console.log('[VideoConf] Room rejoint:', ROOM_ID);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('[VideoConf] ❌ Erreur de connexion:', error);
+      setConnectionStatus('Erreur de connexion');
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[VideoConf] Déconnecté:', reason);
+      setConnectionStatus('Déconnecté');
+    });
+
+    socket.on('get-existing-users', async (users: string[]) => {
+      console.log('[VideoConf] 👥 Utilisateurs existants:', users);
+      setConnectedUsers(users);
+      let stream = localStreamRef.current;
+      if (!stream) stream = await getMedia();
+      if (!stream) {
+        console.error('[VideoConf] ❌ Pas de stream local disponible');
+        return;
+      }
+      for (const userId of users) {
+        if (userId === socket.id || peersRef.current.has(userId)) continue;
+        console.log('[VideoConf] 📞 Création offre pour:', userId);
+        const pc = createPeerConnection(userId, stream);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('sending-offer', { offer: pc.localDescription, toId: userId });
+      }
+    });
+
+    socket.on('user-joined', async (userId: string) => {
+      console.log('[VideoConf] ➕ Nouvel utilisateur rejoint:', userId);
+      setConnectedUsers(prev => [...prev, userId]);
+      let stream = localStreamRef.current;
+      if (!stream) stream = await getMedia();
+      if (!stream || peersRef.current.has(userId)) return;
+      console.log('[VideoConf] 📞 Création offre pour nouvel utilisateur:', userId);
+      const pc = createPeerConnection(userId, stream);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('sending-offer', { offer: pc.localDescription, toId: userId });
+    });
+
+    socket.on('user-left', (userId: string) => {
+      console.log('[VideoConf] ➖ Utilisateur parti:', userId);
+      setConnectedUsers(prev => prev.filter(id => id !== userId));
+      removeRemoteStream(userId);
+      peersRef.current.get(userId)?.close();
+      peersRef.current.delete(userId);
+    });
+
+    socket.on('receiving-offer', async (offer: any, fromId: string) => {
+      console.log('[VideoConf] 📥 Offre reçue de:', fromId);
+      let stream = localStreamRef.current;
+      if (!stream) stream = await getMedia();
+      if (!stream) return;
+      const pc = createPeerConnection(fromId, stream);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('sending-answer', { answer: pc.localDescription, toId: fromId });
+      console.log('[VideoConf] 📤 Réponse envoyée à:', fromId);
+    });
+
+    socket.on('receiving-answer', async (answer: any, fromId: string) => {
+      console.log('[VideoConf] 📥 Réponse reçue de:', fromId);
+      const pc = peersRef.current.get(fromId);
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log('[VideoConf] ✅ Réponse appliquée pour:', fromId);
+      }
+    });
+
+    socket.on('receiving-ice-candidate', async (candidate: any, fromId: string) => {
+      const pc = peersRef.current.get(fromId);
+      if (pc) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log('[VideoConf] 🧊 ICE candidate ajouté de:', fromId);
+      }
+    });
+
+    socket.on('message-history', (messages: any[]) => {
+      setChatMessages(messages.map(m => ({
+        id: m.id || String(Date.now()),
+        user: m.sender || 'Utilisateur',
+        time: new Date(m.createdAt || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        message: m.content
+      })));
+    });
+
+    socket.on('receive-chat-message', (content: string, senderId: string, timestamp: Date) => {
+      setChatMessages(prev => [...prev, {
+        id: String(Date.now()),
+        user: senderId === socket.id ? 'Vous' : `Participant`,
+        time: new Date(timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        message: content
+      }]);
+    });
+
+    socketRef.current = socket as AppSocket;
+
+    return () => {
+      mounted = false;
+      socket.disconnect();
+      peersRef.current.forEach(pc => pc.close());
+      peersRef.current.clear();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+        localStreamRef.current = null;
+      }
+    };
+  }, [DYNAMIC_SERVER_URL, ROOM_ID, authToken, createPeerConnection, getMedia, removeRemoteStream]);
 
   const handleSendMessage = () => {
-    if (chatMessage.trim()) {
-      setChatMessage('');
+    const content = chatMessage.trim();
+    if (!content || !socketRef.current) {
+      console.warn('[VideoConf] ⚠️ Impossible d\'envoyer le message:', !content ? 'vide' : 'socket non connecté');
+      return;
+    }
+    console.log('[VideoConf] 💬 Envoi message:', content);
+    socketRef.current.emit('send-chat-message', { content, roomId: ROOM_ID, senderId: socketRef.current.id || '' });
+    setChatMessages(prev => [...prev, {
+      id: String(Date.now()),
+      user: 'Vous',
+      time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      message: content
+    }]);
+    setChatMessage('');
+  };
+
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      screenStreamRef.current?.getTracks().forEach(t => t.stop());
+      screenStreamRef.current = null;
+      setIsScreenSharing(false);
+    } else {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        screenStreamRef.current = screenStream;
+        setIsScreenSharing(true);
+        screenStream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+          screenStreamRef.current = null;
+        };
+      } catch (err) {
+        console.error('Erreur partage écran:', err);
+      }
     }
   };
 
-  const handleOpenParticipantCard = (participant: ParticipantWithPrerequisites) => {
-    setSelectedParticipant(participant);
-    setShowParticipantCard(true);
+  const totalParticipants = 1 + remoteStreams.size;
+
+  // Translations
+  const txt = {
+    you: language === 'fr' ? 'Vous' : 'You',
+    cameraOff: language === 'fr' ? 'Caméra désactivée' : 'Camera off',
+    waitingParticipants: language === 'fr' ? 'En attente de participants' : 'Waiting for participants',
+    noMessages: language === 'fr' ? 'Aucun message' : 'No messages',
+    messagePlaceholder: language === 'fr' ? 'Message...' : 'Message...',
+    noOtherParticipant: language === 'fr' ? 'Aucun autre participant' : 'No other participants',
+    connected: language === 'fr' ? 'Connecté' : 'Connected',
+    selectImagery: language === 'fr' ? 'Sélectionnez une imagerie dans le panel de gauche' : 'Select imagery from the left panel',
+    hide: language === 'fr' ? 'Masquer' : 'Hide',
+    quit: language === 'fr' ? 'Quitter' : 'Leave',
+    addDocument: language === 'fr' ? 'Ajouter un document' : 'Add document',
+    search: language === 'fr' ? 'Rechercher...' : 'Search...',
+    suspectZone: language === 'fr' ? 'Zone suspecte' : 'Suspect zone',
+    age: language === 'fr' ? 'Âge' : 'Age',
+    bloodType: language === 'fr' ? 'Groupe sanguin' : 'Blood type',
+    allergies: language === 'fr' ? 'Allergies' : 'Allergies',
+    diagnostic: language === 'fr' ? 'Diagnostic' : 'Diagnosis',
+    lastVisit: language === 'fr' ? 'Dernière visite' : 'Last visit',
+    nextRCP: language === 'fr' ? 'Prochaine RCP' : 'Next RCP',
+    years: language === 'fr' ? 'ans' : 'years',
+    slices: language === 'fr' ? 'coupes' : 'slices',
   };
 
-  // Get unique roles for filter
-  const uniqueRoles = Array.from(new Set(participants.map(p => p.role)));
-  
-  // Filter participants by role
-  const filteredParticipants = roleFilter 
-    ? participants.filter(p => p.role === roleFilter)
-    : participants;
-
-  // Calculate readiness for each participant
-  const getParticipantReadiness = (participant: ParticipantWithPrerequisites) => {
-    const completed = participant.prerequisites.filter(p => p.status === 'completed').length;
-    const total = participant.prerequisites.length;
-    return total > 0 ? (completed / total) * 100 : 0;
-  };
+  // Control button component
+  const ControlButton = ({ onClick, active, danger, children, label }: {
+    onClick: () => void;
+    active?: boolean;
+    danger?: boolean;
+    children: React.ReactNode;
+    label?: string;
+  }) => (
+    <button
+      onClick={onClick}
+      title={label}
+      style={{
+        width: '44px',
+        height: '44px',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: 'none',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        backgroundColor: danger ? C.red : active ? C.blue : C.bgControl,
+        color: C.textWhite,
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.backgroundColor = danger ? C.redDark : active ? C.blueDark : C.bgControlHover;
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.backgroundColor = danger ? C.red : active ? C.blue : C.bgControl;
+      }}
+    >
+      {children}
+    </button>
+  );
 
   return (
-    <div className="fixed inset-0 bg-[#1a1f2e] z-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-[#0f1419] px-6 py-3 flex items-center justify-between border-b border-gray-800">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-white text-sm">OncoFlow</span>
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      backgroundColor: C.bg,
+      zIndex: 999999,
+      display: 'flex',
+      flexDirection: 'column',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      {/* ===== HEADER ===== */}
+      <div style={{
+        height: '48px',
+        backgroundColor: C.bgHeader,
+        padding: '0 16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottom: `1px solid ${C.border}`,
+        flexShrink: 0,
+      }}>
+        {/* Left: Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '28px', height: '28px',
+            background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+            borderRadius: '6px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Video size={14} color="white" />
           </div>
-          <Separator orientation="vertical" className="h-6 bg-gray-700" />
           <div>
-            <h2 className="text-white text-sm">{meetingTitle}</h2>
-            <p className="text-xs text-gray-400">18/06/2024 • <span className="text-green-400">⏱ 00:14:32</span></p>
+            <span style={{ color: C.textWhite, fontWeight: 500, fontSize: '14px' }}>{meetingTitle}</span>
+            {displayPatientName !== 'Patient' && (
+              <span style={{ color: C.textGrayDark, fontSize: '12px', marginLeft: '8px' }}>• {displayPatientName}</span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white hover:bg-gray-800">
-            <Users className="w-5 h-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} className="text-gray-400 hover:text-white hover:bg-gray-800">
-            <X className="w-5 h-5" />
-          </Button>
+
+        {/* Right: Status + controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Connection status */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
+            backgroundColor: connectionStatus === 'Connecté' ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)',
+            color: connectionStatus === 'Connecté' ? C.green : C.yellow,
+          }}>
+            <div style={{
+              width: '6px', height: '6px', borderRadius: '50%',
+              backgroundColor: connectionStatus === 'Connecté' ? C.green : C.yellow,
+            }} />
+            {connectionStatus}
+          </div>
+
+          {/* View mode toggle */}
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            backgroundColor: C.bgControl, borderRadius: '6px', padding: '2px',
+          }}>
+            {['video', 'imagery'].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode as any)}
+                style={{
+                  height: '24px', padding: '0 8px', fontSize: '11px',
+                  border: 'none', borderRadius: '4px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  backgroundColor: viewMode === mode ? C.bgControlHover : 'transparent',
+                  color: viewMode === mode ? C.textWhite : C.textGray,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {mode === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
+                {mode === 'video' ? 'Vidéo' : (language === 'fr' ? 'Imagerie' : 'Imagery')}
+              </button>
+            ))}
+          </div>
+
+          {/* Participants count */}
+          <button
+            onClick={() => { setRightPanelOpen(true); setRightPanelTab('participants'); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '4px',
+              padding: '4px 8px', border: 'none', borderRadius: '4px',
+              backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            <Users size={14} />
+            {totalParticipants}
+          </button>
+
+          {/* Close */}
+          <button
+            onClick={onClose}
+            style={{
+              width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+              backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <X size={16} />
+          </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Patient Info & Documents */}
-        <div className="w-60 bg-[#0f1419] border-r border-gray-800 flex flex-col">
-          <div className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <Avatar className="w-12 h-12 bg-blue-600">
-                <AvatarFallback className="bg-blue-600 text-white">MD</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="text-white text-sm">{patientName}</p>
-                <p className="text-xs text-gray-400">ID: 789456123</p>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 transition-colors flex items-center gap-2">
-                <FolderOpen className="w-4 h-4" />
-                Infos Patient
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 transition-colors flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Documents
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm bg-blue-900/30 text-blue-300 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4" />
-                Examens
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 transition-colors flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Historique
-              </button>
-            </div>
-          </div>
+      {/* ===== MAIN CONTENT ===== */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
-          <Separator className="bg-gray-800" />
-
-          <ScrollArea className="flex-1 p-3">
-            <div className="space-y-1">
-              <div className="text-xs text-gray-500 px-2 mb-2">Rechercher un examen...</div>
-              {imageryFiles.map((file) => (
-                <div
-                  key={file.id}
-                  className={`p-2 rounded text-xs hover:bg-gray-800 cursor-pointer transition-colors ${
-                    file.status === 'Ouvert' ? 'bg-blue-900/20 border border-blue-800' : ''
-                  }`}
+        {/* ===== LEFT PANEL ===== */}
+        {leftPanelOpen && (
+          <div style={{
+            width: '280px',
+            backgroundColor: C.bgPanel,
+            borderRight: `1px solid ${C.border}`,
+            display: 'flex', flexDirection: 'column', flexShrink: 0,
+            overflow: 'hidden',
+          }}>
+            {/* Panel tabs */}
+            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
+              {[
+                { id: 'patient', icon: UserIcon, label: 'Patient' },
+                { id: 'documents', icon: FileText, label: 'Docs' },
+                { id: 'imagery', icon: ImageIcon, label: 'Images' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setLeftPanelTab(tab.id as any)}
+                  style={{
+                    flex: 1, padding: '10px 8px', border: 'none', cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                    fontSize: '11px', transition: 'all 0.2s',
+                    backgroundColor: leftPanelTab === tab.id ? 'rgba(59,130,246,0.1)' : 'transparent',
+                    color: leftPanelTab === tab.id ? C.blueLight : C.textGray,
+                    borderBottom: leftPanelTab === tab.id ? `2px solid ${C.blueLight}` : '2px solid transparent',
+                  }}
                 >
-                  <div className="flex items-start gap-2">
-                    <ImageIcon className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white truncate">{file.name}</p>
-                      <p className="text-gray-500 text-xs mt-0.5">{file.doctor}</p>
-                      <Badge variant="secondary" className="mt-1 text-xs py-0 px-1 h-auto">
-                        {file.status}
-                      </Badge>
+                  <tab.icon size={16} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Panel content */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+              {/* PATIENT TAB */}
+              {leftPanelTab === 'patient' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Patient avatar */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '12px', backgroundColor: C.bgCard, borderRadius: '10px',
+                  }}>
+                    <div style={{
+                      width: '48px', height: '48px', borderRadius: '50%',
+                      backgroundColor: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'white', fontWeight: 600, fontSize: '16px',
+                    }}>
+                      {displayPatientName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </div>
+                    <div>
+                      <p style={{ color: C.textWhite, fontWeight: 500, margin: 0 }}>{patientInfo.name}</p>
+                      <p style={{ color: C.textGray, fontSize: '12px', margin: 0 }}>{patientInfo.id}</p>
+                    </div>
+                  </div>
+
+                  {/* Quick info */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div style={{ backgroundColor: C.bgCard, padding: '10px', borderRadius: '8px' }}>
+                      <p style={{ color: C.textGrayDark, fontSize: '11px', margin: 0 }}>{txt.age}</p>
+                      <p style={{ color: C.textWhite, fontSize: '14px', fontWeight: 500, margin: '2px 0 0' }}>{patientInfo.age} {txt.years}</p>
+                    </div>
+                    <div style={{ backgroundColor: C.bgCard, padding: '10px', borderRadius: '8px' }}>
+                      <p style={{ color: C.textGrayDark, fontSize: '11px', margin: 0 }}>{txt.bloodType}</p>
+                      <p style={{ color: C.textWhite, fontSize: '14px', fontWeight: 500, margin: '2px 0 0' }}>{patientInfo.bloodType}</p>
+                    </div>
+                  </div>
+
+                  {/* Diagnostic */}
+                  <div style={{ backgroundColor: C.bgCard, padding: '12px', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <Stethoscope size={16} color={C.orange} />
+                      <span style={{ color: C.textGray, fontSize: '11px' }}>{txt.diagnostic}</span>
+                    </div>
+                    <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>{patientInfo.diagnosis}</p>
+                  </div>
+
+                  {/* Allergies */}
+                  <div style={{
+                    backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                    padding: '12px', borderRadius: '10px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <Activity size={16} color={C.red} />
+                      <span style={{ color: C.red, fontSize: '12px', fontWeight: 500 }}>{txt.allergies}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {patientInfo.allergies.map((allergy, i) => (
+                        <span key={i} style={{
+                          backgroundColor: 'rgba(239,68,68,0.2)', color: '#fca5a5',
+                          padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
+                        }}>{allergy}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dates */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <Clock size={16} color={C.textGrayDark} />
+                      <span style={{ color: C.textGray }}>{txt.lastVisit}:</span>
+                      <span style={{ color: C.textWhite }}>{patientInfo.lastVisit}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <Calendar size={16} color={C.textGrayDark} />
+                      <span style={{ color: C.textGray }}>{txt.nextRCP}:</span>
+                      <span style={{ color: C.blueLight }}>{patientInfo.nextRCP}</span>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
+              )}
 
-        {/* Center - Video/Imagery Area */}
-        <div className="flex-1 flex flex-col">
-          {/* Toolbar */}
-          {showImagery && (
-            <div className="bg-[#0f1419] px-4 py-2 flex items-center gap-2 border-b border-gray-800">
-              <div className="flex items-center gap-1 bg-gray-800 rounded p-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 ${selectedTool === 'cursor' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  onClick={() => setSelectedTool('cursor')}
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 ${selectedTool === 'pen' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  onClick={() => setSelectedTool('pen')}
-                >
-                  <PenTool className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 ${selectedTool === 'text' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  onClick={() => setSelectedTool('text')}
-                >
-                  <Type className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 ${selectedTool === 'rectangle' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  onClick={() => setSelectedTool('rectangle')}
-                >
-                  <Square className="w-4 h-4" />
-                </Button>
-              </div>
+              {/* DOCUMENTS TAB */}
+              {leftPanelTab === 'documents' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Search */}
+                  <div style={{ position: 'relative', marginBottom: '4px' }}>
+                    <Search size={16} color={C.textGrayDark} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                    <input
+                      placeholder={txt.search}
+                      value={searchDoc}
+                      onChange={(e) => setSearchDoc(e.target.value)}
+                      style={{
+                        width: '100%', height: '32px', paddingLeft: '32px', paddingRight: '8px',
+                        backgroundColor: C.bgCard, border: 'none', borderRadius: '6px',
+                        color: C.textWhite, fontSize: '13px', outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
 
-              <Separator orientation="vertical" className="h-6 bg-gray-700" />
-
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-white">
-                  <ZoomIn className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-white">
-                  <ZoomOut className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-white">
-                  <Maximize2 className="w-4 h-4" />
-                </Button>
-              </div>
-
-              <div className="flex-1"></div>
-
-              <div className="bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded text-xs flex items-center gap-2">
-                <div className="w-2 h-2 bg-cyan-400 rounded-full"></div>
-                Suggestion IA : Zone suspecte détectée
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 p-6 flex gap-4 overflow-hidden">
-            {/* Main Display - Imagery or Video */}
-            <div className="flex-1 flex flex-col gap-3">
-              {/* Main imagery/video */}
-              <div className="flex-1 bg-black rounded-lg overflow-hidden relative">
-                {showImagery ? (
-                  <div className="w-full h-full flex items-center justify-center">
-                    {/* Medical imaging placeholder - brain scan */}
-                    <div className="relative w-full h-full flex items-center justify-center p-8">
-                      <div className="relative w-full max-w-2xl aspect-square">
-                        {/* Brain scan circle */}
-                        <div className="absolute inset-0 rounded-full border-4 border-cyan-500/50 bg-gradient-to-br from-slate-900 via-blue-900/30 to-slate-900">
-                          {/* Inner brain structure */}
-                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4">
-                            <svg viewBox="0 0 200 200" className="w-full h-full">
-                              {/* Brain illustration */}
-                              <ellipse cx="100" cy="100" rx="70" ry="80" fill="none" stroke="rgba(96, 165, 250, 0.3)" strokeWidth="2"/>
-                              <path d="M 100 30 Q 140 50 140 100 Q 140 150 100 170 Q 60 150 60 100 Q 60 50 100 30" fill="rgba(59, 130, 246, 0.2)" stroke="rgba(96, 165, 250, 0.5)" strokeWidth="1.5"/>
-                              
-                              {/* Annotation area */}
-                              <circle cx="120" cy="90" r="20" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3"/>
-                              <line x1="140" y1="80" x2="170" y2="60" stroke="#22d3ee" strokeWidth="1.5"/>
-                            </svg>
-                          </div>
+                  {documents.filter(d => d.name.toLowerCase().includes(searchDoc.toLowerCase())).map((doc) => (
+                    <div
+                      key={doc.id}
+                      style={{
+                        padding: '12px', backgroundColor: C.bgCard, borderRadius: '10px',
+                        cursor: 'pointer', transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = C.bgCardHover; }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = C.bgCard; }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                        <div style={{
+                          width: '40px', height: '40px', borderRadius: '8px',
+                          backgroundColor: doc.type === 'pdf' ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                          <FileText size={20} color={doc.type === 'pdf' ? '#f87171' : C.blueLight} />
                         </div>
-                        
-                        {/* Thumbnails on right */}
-                        <div className="absolute right-0 top-0 bottom-0 w-24 flex flex-col gap-2 p-2">
-                          {[1, 2, 3].map((i) => (
-                            <div key={i} className={`aspect-square rounded border-2 ${i === 1 ? 'border-cyan-400' : 'border-gray-700'} bg-slate-800/50 cursor-pointer hover:border-cyan-500 transition-colors`}>
-                              <div className="w-full h-full flex items-center justify-center">
-                                <div className="w-12 h-12 rounded-full border border-cyan-600/30 bg-blue-900/20"></div>
-                              </div>
-                            </div>
-                          ))}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ color: C.textWhite, fontSize: '13px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</p>
+                          <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{doc.owner} • {doc.date}</p>
+                          <p style={{ color: C.textGrayDarker, fontSize: '11px', margin: '1px 0 0' }}>{doc.size}</p>
+                        </div>
+                        <button style={{
+                          width: '32px', height: '32px', border: 'none', borderRadius: '6px',
+                          backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          opacity: 0.5, transition: 'opacity 0.2s',
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
+                          onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; }}
+                        >
+                          <Download size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button style={{
+                    width: '100%', padding: '10px', marginTop: '4px',
+                    border: `1px dashed ${C.textGrayDark}`, borderRadius: '8px',
+                    backgroundColor: 'transparent', color: C.textGray,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                    fontSize: '13px', transition: 'all 0.2s',
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = C.textGray; e.currentTarget.style.color = C.textWhite; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = C.textGrayDark; e.currentTarget.style.color = C.textGray; }}
+                  >
+                    <Upload size={16} />
+                    {txt.addDocument}
+                  </button>
+                </div>
+              )}
+
+              {/* IMAGERY TAB */}
+              {leftPanelTab === 'imagery' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {imageries.map((img) => (
+                    <div
+                      key={img.id}
+                      onClick={() => { setSelectedImagery(img.id); setViewMode('imagery'); }}
+                      style={{
+                        padding: '12px', borderRadius: '10px', cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        backgroundColor: selectedImagery === img.id ? 'rgba(59,130,246,0.15)' : C.bgCard,
+                        border: selectedImagery === img.id ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
+                      }}
+                      onMouseEnter={e => {
+                        if (selectedImagery !== img.id) e.currentTarget.style.backgroundColor = C.bgCardHover;
+                      }}
+                      onMouseLeave={e => {
+                        if (selectedImagery !== img.id) e.currentTarget.style.backgroundColor = C.bgCard;
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                        <div style={{
+                          width: '48px', height: '48px', borderRadius: '8px',
+                          backgroundColor: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <ImageIcon size={24} color={C.cyan} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ color: C.textWhite, fontSize: '13px', fontWeight: 500, margin: 0 }}>{img.name}</p>
+                          <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0' }}>{img.type} • {img.slices} {txt.slices}</p>
+                          <p style={{ color: C.textGrayDarker, fontSize: '11px', margin: 0 }}>{img.date}</p>
+                        </div>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                          backgroundColor: img.status === 'Complet' ? 'rgba(34,197,94,0.15)' : 'rgba(156,163,175,0.15)',
+                          color: img.status === 'Complet' ? C.green : C.textGray,
+                        }}>{img.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Hide button */}
+            <button
+              onClick={() => setLeftPanelOpen(false)}
+              style={{
+                margin: '8px', padding: '6px 12px', border: 'none', borderRadius: '6px',
+                backgroundColor: 'transparent', color: C.textGrayDark, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px',
+                transition: 'color 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = C.textWhite; }}
+              onMouseLeave={e => { e.currentTarget.style.color = C.textGrayDark; }}
+            >
+              <PanelLeftClose size={16} />
+              {txt.hide}
+            </button>
+          </div>
+        )}
+
+        {/* Left panel show button */}
+        {!leftPanelOpen && (
+          <button
+            onClick={() => setLeftPanelOpen(true)}
+            style={{
+              position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)',
+              zIndex: 10, width: '32px', height: '32px', border: 'none', borderRadius: '50%',
+              backgroundColor: C.bgControl, color: C.textWhite, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <ChevronRight size={16} />
+          </button>
+        )}
+
+        {/* ===== CENTER - VIDEO / IMAGERY ===== */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {viewMode === 'imagery' ? (
+            /* IMAGERY VIEW */
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              {/* Imagery toolbar */}
+              <div style={{
+                height: '40px', backgroundColor: C.bgHeader,
+                borderBottom: `1px solid ${C.border}`,
+                padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                flexShrink: 0,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {[
+                    { id: 'cursor', icon: MousePointer },
+                    { id: 'pen', icon: Pencil },
+                    { id: 'text', icon: Type },
+                    { id: 'rectangle', icon: Square },
+                    { id: 'circle', icon: Circle },
+                  ].map((tool) => (
+                    <button
+                      key={tool.id}
+                      onClick={() => setAnnotationTool(tool.id as any)}
+                      style={{
+                        width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: annotationTool === tool.id ? C.blue : 'transparent',
+                        color: annotationTool === tool.id ? C.textWhite : C.textGray,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <tool.icon size={14} />
+                    </button>
+                  ))}
+                  <div style={{ width: '1px', height: '20px', backgroundColor: C.borderLight, margin: '0 4px' }} />
+                  <button style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <RotateCcw size={14} />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button onClick={() => setZoomLevel(Math.max(25, zoomLevel - 25))} style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <ZoomOut size={14} />
+                  </button>
+                  <span style={{ color: C.textWhite, fontSize: '12px', width: '48px', textAlign: 'center' }}>{zoomLevel}%</span>
+                  <button onClick={() => setZoomLevel(Math.min(400, zoomLevel + 25))} style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <ZoomIn size={14} />
+                  </button>
+                  <button style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
+                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Maximize2 size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Imagery viewer */}
+              <div style={{
+                flex: 1, backgroundColor: '#000', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                position: 'relative', overflow: 'hidden',
+              }}>
+                {selectedImagery ? (
+                  <div style={{ transform: `scale(${zoomLevel / 100})`, transition: 'transform 0.2s' }}>
+                    <div style={{ width: '500px', height: '500px', position: 'relative' }}>
+                      <div style={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        border: `4px solid rgba(34,211,238,0.4)`,
+                        background: 'linear-gradient(135deg, #0f172a, rgba(30,64,175,0.2), #0f172a)',
+                      }}>
+                        <div style={{
+                          position: 'absolute', top: '50%', left: '50%',
+                          transform: 'translate(-50%, -50%)', width: '75%', height: '75%',
+                        }}>
+                          <svg viewBox="0 0 200 200" style={{ width: '100%', height: '100%' }}>
+                            <ellipse cx="100" cy="100" rx="70" ry="80" fill="none" stroke="rgba(96,165,250,0.3)" strokeWidth="2"/>
+                            <path d="M 100 30 Q 140 50 140 100 Q 140 150 100 170 Q 60 150 60 100 Q 60 50 100 30" fill="rgba(59,130,246,0.2)" stroke="rgba(96,165,250,0.5)" strokeWidth="1.5"/>
+                            <circle cx="120" cy="90" r="20" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3"/>
+                            <line x1="140" y1="80" x2="180" y2="50" stroke="#22d3ee" strokeWidth="1"/>
+                            <text x="182" y="48" fill="#22d3ee" fontSize="10">{txt.suspectZone}</text>
+                          </svg>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-24 h-24 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center">
-                        <span className="text-white text-2xl">VR</span>
-                      </div>
-                      <p className="text-white">Vous (Radiologue)</p>
-                      <p className="text-gray-400 text-sm">En ligne</p>
-                    </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <ImageIcon size={64} color={C.textGrayDarker} style={{ margin: '0 auto 12px' }} />
+                    <p style={{ color: C.textGrayDark, margin: 0 }}>{txt.selectImagery}</p>
                   </div>
                 )}
-              </div>
 
-              {/* Participant videos */}
-              <div className="grid grid-cols-3 gap-2 h-28">
-                {participants.slice(1).map((participant) => (
-                  <div key={participant.id} className="bg-[#0f1419] rounded-lg overflow-hidden relative border border-gray-800">
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-2">
-                      <Avatar className="w-12 h-12 bg-gray-700 mb-1">
-                        <AvatarFallback className="bg-gray-700 text-white text-sm">{participant.initials}</AvatarFallback>
-                      </Avatar>
-                      <p className="text-white text-xs text-center truncate w-full">{participant.name}</p>
-                      <p className="text-gray-500 text-xs">{participant.role}</p>
-                    </div>
-                    <div className="absolute top-2 right-2 flex gap-1">
-                      {!participant.micOn && (
-                        <div className="w-5 h-5 bg-red-500/80 rounded-full flex items-center justify-center">
-                          <MicOff className="w-3 h-3 text-white" />
-                        </div>
-                      )}
-                      {!participant.videoOn && (
-                        <div className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center">
-                          <VideoOff className="w-3 h-3 text-gray-400" />
-                        </div>
-                      )}
-                    </div>
+                {/* Mini video overlay in imagery mode */}
+                <div style={{ position: 'absolute', bottom: '16px', right: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{
+                    width: '160px', aspectRatio: '16/9',
+                    backgroundColor: C.bgCard, borderRadius: '10px', overflow: 'hidden',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)', border: `1px solid ${C.borderLight}`,
+                    position: 'relative',
+                  }}>
+                    {localStream && videoEnabled ? (
+                      <video ref={localVideoRef} autoPlay muted playsInline
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+                    ) : (
+                      <div style={{
+                        width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <div style={{
+                          width: '40px', height: '40px', borderRadius: '50%', backgroundColor: C.blue,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: 'white', fontSize: '14px', fontWeight: 600,
+                        }}>{currentDoctorInitials}</div>
+                      </div>
+                    )}
+                    <div style={{
+                      position: 'absolute', bottom: '4px', left: '4px',
+                      backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: '4px',
+                      padding: '2px 6px', fontSize: '11px', color: 'white',
+                    }}>{txt.you}</div>
                   </div>
-                ))}
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* VIDEO GRID VIEW */
+            <div style={{
+              flex: 1, display: 'grid', gap: '8px', padding: '12px',
+              gridTemplateColumns: totalParticipants <= 2 ? (totalParticipants === 1 ? '1fr' : '1fr 1fr') : 'repeat(2, 1fr)',
+              gridTemplateRows: totalParticipants <= 2 ? '1fr' : 'repeat(2, 1fr)',
+            }}>
+              {/* My video */}
+              <div style={{
+                backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
+                position: 'relative', minHeight: '180px',
+              }}>
+                {/* Video element always in DOM so srcObject persists across toggles */}
+                <video ref={localVideoRef} autoPlay muted playsInline
+                  style={{
+                    width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)',
+                    display: videoEnabled && localStream ? 'block' : 'none',
+                  }} />
+                {/* Avatar shown when camera is off */}
+                {(!videoEnabled || !localStream) && (
+                  <div style={{
+                    width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{
+                      width: '64px', height: '64px', borderRadius: '50%', backgroundColor: C.blue,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'white', fontSize: '22px', fontWeight: 600, marginBottom: '8px',
+                    }}>{currentDoctorInitials}</div>
+                    <p style={{ color: C.textWhite, fontSize: '14px', margin: 0 }}>{currentDoctorName}</p>
+                    <p style={{ color: C.textGrayDark, fontSize: '12px', margin: '4px 0 0' }}>{txt.cameraOff}</p>
+                  </div>
+                )}
+                {/* Name overlay */}
+                <div style={{
+                  position: 'absolute', bottom: '8px', left: '8px', right: '8px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <div style={{
+                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    borderRadius: '6px', padding: '4px 8px',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                  }}>
+                    <span style={{ color: 'white', fontSize: '13px' }}>{currentDoctorName}</span>
+                    <span style={{
+                      backgroundColor: 'rgba(59,130,246,0.8)', color: 'white',
+                      padding: '1px 6px', borderRadius: '4px', fontSize: '11px',
+                    }}>{txt.you}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {!micEnabled && (
+                      <div style={{
+                        width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.red,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}><MicOff size={12} color="white" /></div>
+                    )}
+                    {!videoEnabled && (
+                      <div style={{
+                        width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.textGrayDark,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}><VideoOff size={12} color="white" /></div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Remote videos */}
+              {Array.from(remoteStreams.entries()).map(([id, stream]) => (
+                <div key={id} style={{
+                  backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
+                  position: 'relative', minHeight: '180px',
+                }}>
+                  <video autoPlay playsInline
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', minHeight: '180px' }}
+                    ref={(video) => { if (video) video.srcObject = stream; }}
+                  />
+                  <div style={{
+                    position: 'absolute', bottom: '8px', left: '8px',
+                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    borderRadius: '6px', padding: '4px 8px',
+                  }}>
+                    <span style={{ color: 'white', fontSize: '13px' }}>Participant {id.slice(0, 6)}</span>
+                  </div>
+                </div>
+              ))}
+
+              {/* Placeholder when alone */}
+              {remoteStreams.size === 0 && (
+                <div style={{
+                  backgroundColor: 'rgba(42,42,42,0.5)', borderRadius: '12px',
+                  border: `2px dashed ${C.borderLight}`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  padding: '24px',
+                }}>
+                  <Users size={40} color={C.textGrayDarker} style={{ marginBottom: '8px' }} />
+                  <p style={{ color: C.textGray, fontSize: '14px', margin: 0 }}>{txt.waitingParticipants}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                    <code style={{
+                      backgroundColor: 'rgba(59,130,246,0.1)', color: C.blueLight,
+                      padding: '4px 8px', borderRadius: '4px', fontSize: '12px',
+                    }}>{ROOM_ID.length > 20 ? ROOM_ID.slice(0, 20) + '...' : ROOM_ID}</code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(ROOM_ID)}
+                      style={{
+                        width: '24px', height: '24px', border: 'none', borderRadius: '4px',
+                        backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Copy size={12} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Right Sidebar - Chat & Participants */}
-        {showSidebar && (
-          <div className="w-80 bg-[#0f1419] border-l border-gray-800 flex flex-col">
-            <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex-1 flex flex-col">
-              <TabsList className="grid w-full grid-cols-4 bg-transparent border-b border-gray-800 rounded-none h-12">
-                <TabsTrigger value="chat" className="data-[state=active]:bg-gray-800 text-gray-400 data-[state=active]:text-white rounded-none">
-                  <MessageSquare className="w-4 h-4" />
-                </TabsTrigger>
-                <TabsTrigger value="participants" className="data-[state=active]:bg-gray-800 text-gray-400 data-[state=active]:text-white rounded-none">
-                  <Users className="w-4 h-4" />
-                </TabsTrigger>
-                <TabsTrigger value="docs" className="data-[state=active]:bg-gray-800 text-gray-400 data-[state=active]:text-white rounded-none">
-                  <FileText className="w-4 h-4" />
-                </TabsTrigger>
-                <TabsTrigger value="share" className="data-[state=active]:bg-gray-800 text-gray-400 data-[state=active]:text-white rounded-none">
-                  <Share2 className="w-4 h-4" />
-                </TabsTrigger>
-              </TabsList>
+        {/* ===== RIGHT PANEL ===== */}
+        {rightPanelOpen && (
+          <div style={{
+            width: '280px', backgroundColor: C.bgPanel,
+            borderLeft: `1px solid ${C.border}`,
+            display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',
+          }}>
+            {/* Tabs */}
+            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
+              <button
+                onClick={() => setRightPanelTab('chat')}
+                style={{
+                  flex: 1, padding: '10px', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  fontSize: '13px', backgroundColor: 'transparent',
+                  color: rightPanelTab === 'chat' ? C.blueLight : C.textGray,
+                  borderBottom: rightPanelTab === 'chat' ? `2px solid ${C.blueLight}` : '2px solid transparent',
+                }}
+              >
+                <MessageSquare size={16} /> Chat
+              </button>
+              <button
+                onClick={() => setRightPanelTab('participants')}
+                style={{
+                  flex: 1, padding: '10px', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  fontSize: '13px', backgroundColor: 'transparent',
+                  color: rightPanelTab === 'participants' ? C.blueLight : C.textGray,
+                  borderBottom: rightPanelTab === 'participants' ? `2px solid ${C.blueLight}` : '2px solid transparent',
+                }}
+              >
+                <Users size={16} /> ({totalParticipants})
+              </button>
+            </div>
 
-              <TabsContent value="chat" className="flex-1 flex flex-col mt-0">
-                <div className="p-4 border-b border-gray-800">
-                  <h3 className="text-white text-sm">Chat de la réunion</h3>
-                  <p className="text-xs text-gray-500 mt-1">Les messages sont archivés par dossier</p>
-                </div>
-
-                <ScrollArea className="flex-1 p-4">
-                  <div className="space-y-4">
-                    {chatMessages.map((msg) => (
-                      <div key={msg.id} className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-white">{msg.user}</span>
-                          <span className="text-xs text-gray-500">{msg.time}</span>
+            {rightPanelTab === 'chat' ? (
+              <>
+                {/* Chat messages */}
+                <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+                  {chatMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', paddingTop: '32px' }}>
+                      <MessageSquare size={40} color={C.textGrayDarker} style={{ margin: '0 auto 8px' }} />
+                      <p style={{ color: C.textGrayDark, fontSize: '13px' }}>{txt.noMessages}</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {chatMessages.map((msg) => (
+                        <div key={msg.id} style={{
+                          display: 'flex', justifyContent: msg.user === 'Vous' ? 'flex-end' : 'flex-start',
+                        }}>
+                          <div style={{ maxWidth: '85%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                              <span style={{ fontSize: '11px', color: C.textGrayDark }}>{msg.user}</span>
+                              <span style={{ fontSize: '11px', color: C.textGrayDarker }}>{msg.time}</span>
+                            </div>
+                            <div style={{
+                              borderRadius: '16px', padding: '8px 12px',
+                              backgroundColor: msg.user === 'Vous' ? C.blue : C.bgControl,
+                              color: 'white', fontSize: '13px',
+                            }}>
+                              {msg.message}
+                            </div>
+                          </div>
                         </div>
-                        <div className="bg-gray-800 rounded-lg p-3">
-                          <p className="text-sm text-gray-300">{msg.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-
-                <div className="p-4 border-t border-gray-800">
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white h-9 w-9">
-                      <Paperclip className="w-4 h-4" />
-                    </Button>
-                    <Input
-                      placeholder="Écrire un message..."
-                      value={chatMessage}
-                      onChange={(e) => setChatMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                      className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
-                    />
-                    <Button 
-                      size="icon" 
-                      className="bg-blue-600 hover:bg-blue-700 h-9 w-9"
-                      onClick={handleSendMessage}
-                    >
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="participants" className="flex-1 mt-0 overflow-hidden">
-                <div className="p-4 border-b border-gray-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white text-sm">Participants ({filteredParticipants.length})</h3>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-sm transition-all h-7 px-2 text-gray-400 hover:text-white hover:bg-gray-800">
-                        <Filter className="w-3 h-3" />
-                        {roleFilter || 'Tous'}
-                        <ChevronDown className="w-3 h-3" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-[#1a1f2e] border-gray-700">
-                        <DropdownMenuLabel className="text-gray-400 text-xs">Filtrer par rôle</DropdownMenuLabel>
-                        <DropdownMenuSeparator className="bg-gray-700" />
-                        <DropdownMenuItem 
-                          onClick={() => setRoleFilter(null)}
-                          className="text-white hover:bg-gray-800 cursor-pointer"
-                        >
-                          Tous les participants ({participants.length})
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-gray-700" />
-                        {uniqueRoles.map((role) => {
-                          const count = participants.filter(p => p.role === role).length;
-                          return (
-                            <DropdownMenuItem 
-                              key={role}
-                              onClick={() => setRoleFilter(role)}
-                              className="text-white hover:bg-gray-800 cursor-pointer"
-                            >
-                              <div className="flex items-center justify-between w-full">
-                                <span>{role}</span>
-                                <Badge variant="secondary" className="ml-2 text-xs">
-                                  {count}
-                                </Badge>
-                              </div>
-                            </DropdownMenuItem>
-                          );
-                        })} 
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {roleFilter && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge variant="secondary" className="text-xs">
-                        {roleFilter}
-                      </Badge>
-                      <button 
-                        onClick={() => setRoleFilter(null)}
-                        className="text-xs text-gray-500 hover:text-gray-300"
-                      >
-                        Effacer le filtre
-                      </button>
+                      ))}
                     </div>
                   )}
                 </div>
-                
-                <ScrollArea className="flex-1">
-                  <div className="p-4 space-y-3">
-                    {filteredParticipants.map((p) => {
-                      const readiness = getParticipantReadiness(p);
-                      const isReady = readiness === 100;
-                      
-                      return (
-                        <div 
-                          key={p.id} 
-                          className="p-3 rounded hover:bg-gray-800 transition-colors cursor-pointer border border-transparent hover:border-gray-700"
-                          onClick={() => handleOpenParticipantCard(p)}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-3 flex-1">
-                              <div className="relative">
-                                <Avatar className="w-10 h-10 bg-blue-600">
-                                  <AvatarFallback className="bg-blue-600 text-white text-sm">{p.initials}</AvatarFallback>
-                                </Avatar>
-                                {/* Readiness indicator */}
-                                <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#0f1419] flex items-center justify-center ${
-                                  isReady ? 'bg-green-500' : 'bg-amber-500'
-                                }`}>
-                                  {isReady ? (
-                                    <CheckCircle2 className="w-3 h-3 text-white" />
-                                  ) : (
-                                    <Clock className="w-3 h-3 text-white" />
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-white text-sm">{p.name}</p>
-                                <p className="text-xs text-gray-400">{p.role}</p>
-                                {/* Prerequisites progress */}
-                                <div className="mt-2 space-y-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className={isReady ? 'text-green-400' : 'text-amber-400'}>
-                                      {p.prerequisites.filter(pr => pr.status === 'completed').length}/{p.prerequisites.length} pré-requis
-                                    </span>
-                                    <span className="text-gray-500">{readiness.toFixed(0)}%</span>
-                                  </div>
-                                  <div className="w-full bg-gray-700 rounded-full h-1.5">
-                                    <div 
-                                      className={`h-1.5 rounded-full transition-all ${
-                                        isReady ? 'bg-green-500' : 'bg-amber-500'
-                                      }`}
-                                      style={{ width: `${readiness}%` }}
-                                    ></div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex gap-1 ml-2">
-                              {p.micOn ? (
-                                <Mic className="w-4 h-4 text-green-400" />
-                              ) : (
-                                <MicOff className="w-4 h-4 text-gray-500" />
-                              )}
-                              {p.videoOn ? (
-                                <Video className="w-4 h-4 text-green-400" />
-                              ) : (
-                                <VideoOff className="w-4 h-4 text-gray-500" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              </TabsContent>
 
-              <TabsContent value="docs" className="flex-1 mt-0 overflow-hidden">
-                <div className="p-4 border-b border-gray-800">
-                  <h3 className="text-white text-sm">Documents partagés</h3>
+                {/* Chat input */}
+                <div style={{ padding: '12px', borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      placeholder={txt.messagePlaceholder}
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                      style={{
+                        flex: 1, height: '36px', padding: '0 12px',
+                        backgroundColor: C.bgCard, border: 'none', borderRadius: '8px',
+                        color: C.textWhite, fontSize: '13px', outline: 'none',
+                      }}
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      style={{
+                        width: '36px', height: '36px', border: 'none', borderRadius: '8px',
+                        backgroundColor: C.blue, color: 'white', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Send size={16} />
+                    </button>
+                  </div>
                 </div>
-                
-                <ScrollArea className="flex-1">
-                  <div className="p-4 space-y-2">
-                    {documents.map((doc) => (
-                      <div key={doc.id} className="p-3 rounded bg-gray-800 hover:bg-gray-750 transition-colors cursor-pointer">
-                        <div className="flex items-start gap-3">
-                          <File className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white text-sm truncate">{doc.name}</p>
-                            <p className="text-xs text-gray-400 mt-1">{doc.owner}</p>
-                            {doc.shared && (
-                              <Badge variant="secondary" className="mt-2 text-xs">Partagé</Badge>
-                            )}
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-white">
-                            <Download className="w-4 h-4" />
-                          </Button>
-                        </div>
+              </>
+            ) : (
+              /* Participants list */
+              <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Me */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '8px', backgroundColor: C.bgCard, borderRadius: '10px',
+                  }}>
+                    <div style={{
+                      width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.blue,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0,
+                    }}>{currentDoctorInitials}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ color: C.textWhite, fontSize: '13px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentDoctorName}</p>
+                      <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{currentDoctorRole}</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {micEnabled ? <Mic size={14} color={C.green} /> : <MicOff size={14} color={C.red} />}
+                      {videoEnabled ? <Video size={14} color={C.green} /> : <VideoOff size={14} color={C.textGrayDark} />}
+                    </div>
+                  </div>
+
+                  {/* Remote participants */}
+                  {Array.from(remoteStreams.keys()).map((id) => (
+                    <div key={id} style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '8px', borderRadius: '10px', transition: 'background-color 0.2s',
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = C.bgCard; }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <div style={{
+                        width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.purple,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0,
+                      }}>{id.slice(0, 2).toUpperCase()}</div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>Participant {id.slice(0, 6)}</p>
+                        <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{txt.connected}</p>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </TabsContent>
+                    </div>
+                  ))}
 
-              <TabsContent value="share" className="flex-1 mt-0">
-                <div className="p-4">
-                  <h3 className="text-white text-sm mb-4">Partager l'écran</h3>
-                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
-                    <Share2 className="w-4 h-4 mr-2" />
-                    Partager mon écran
-                  </Button>
+                  {remoteStreams.size === 0 && (
+                    <p style={{ color: C.textGrayDark, fontSize: '13px', textAlign: 'center', padding: '16px 0' }}>
+                      {txt.noOtherParticipant}
+                    </p>
+                  )}
                 </div>
-              </TabsContent>
-            </Tabs>
+              </div>
+            )}
+
+            {/* Hide button */}
+            <button
+              onClick={() => setRightPanelOpen(false)}
+              style={{
+                margin: '8px', padding: '6px 12px', border: 'none', borderRadius: '6px',
+                backgroundColor: 'transparent', color: C.textGrayDark, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px',
+                transition: 'color 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = C.textWhite; }}
+              onMouseLeave={e => { e.currentTarget.style.color = C.textGrayDark; }}
+            >
+              <PanelRightClose size={16} />
+              {txt.hide}
+            </button>
           </div>
+        )}
+
+        {/* Right panel show button */}
+        {!rightPanelOpen && (
+          <button
+            onClick={() => setRightPanelOpen(true)}
+            style={{
+              position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+              zIndex: 10, width: '32px', height: '32px', border: 'none', borderRadius: '50%',
+              backgroundColor: C.bgControl, color: C.textWhite, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <ChevronLeft size={16} />
+          </button>
         )}
       </div>
 
-      {/* Controls */}
-      <div className="bg-[#0f1419] px-6 py-4 flex items-center justify-between border-t border-gray-800">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white" onClick={() => setShowImagery(!showImagery)}>
-            <ImageIcon className="w-4 h-4 mr-2" />
-            {showImagery ? 'Masquer imagerie' : 'Afficher imagerie'}
-          </Button>
-        </div>
+      {/* ===== BOTTOM CONTROL BAR ===== */}
+      <div style={{
+        height: '64px', backgroundColor: C.bgHeader,
+        borderTop: `1px solid ${C.border}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '0 16px', flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Left panel toggle */}
+          <ControlButton onClick={() => setLeftPanelOpen(!leftPanelOpen)} active={leftPanelOpen}>
+            <FolderOpen size={20} />
+          </ControlButton>
 
-        <div className="flex items-center justify-center gap-3">
-          <Button
-            variant={micEnabled ? 'secondary' : 'destructive'}
-            size="icon"
-            className="rounded-full w-12 h-12"
-            onClick={() => setMicEnabled(!micEnabled)}
+          <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 4px' }} />
+
+          {/* Mic */}
+          <ControlButton onClick={toggleMic} danger={!micEnabled}>
+            {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+          </ControlButton>
+
+          {/* Camera */}
+          <ControlButton onClick={toggleVideo} danger={!videoEnabled}>
+            {videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+          </ControlButton>
+
+          {/* Screen share */}
+          <ControlButton onClick={toggleScreenShare} active={isScreenSharing}>
+            <Share2 size={20} />
+          </ControlButton>
+
+          <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 4px' }} />
+
+          {/* Chat */}
+          <ControlButton
+            onClick={() => { setRightPanelOpen(true); setRightPanelTab('chat'); }}
+            active={rightPanelOpen && rightPanelTab === 'chat'}
           >
-            {micEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-          </Button>
+            <MessageSquare size={20} />
+          </ControlButton>
 
-          <Button
-            variant={videoEnabled ? 'secondary' : 'destructive'}
-            size="icon"
-            className="rounded-full w-12 h-12"
-            onClick={() => setVideoEnabled(!videoEnabled)}
+          {/* Participants */}
+          <ControlButton
+            onClick={() => { setRightPanelOpen(true); setRightPanelTab('participants'); }}
+            active={rightPanelOpen && rightPanelTab === 'participants'}
           >
-            {videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-          </Button>
+            <Users size={20} />
+          </ControlButton>
 
-          <Button
-            variant="secondary"
-            size="icon"
-            className="rounded-full w-12 h-12"
-          >
-            <Share2 className="w-5 h-5" />
-          </Button>
+          {/* More */}
+          <ControlButton onClick={() => {}}>
+            <MoreVertical size={20} />
+          </ControlButton>
 
-          <Button
-            variant={showSidebar ? 'default' : 'secondary'}
-            size="icon"
-            className="rounded-full w-12 h-12"
-            onClick={() => setShowSidebar(!showSidebar)}
-          >
-            <MessageSquare className="w-5 h-5" />
-          </Button>
+          <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 8px' }} />
 
-          <Button
-            variant="destructive"
-            size="icon"
-            className="rounded-full w-12 h-12 ml-4"
+          {/* Leave */}
+          <button
             onClick={onClose}
+            style={{
+              height: '44px', padding: '0 20px', borderRadius: '22px',
+              border: 'none', backgroundColor: C.red, color: 'white',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+              fontWeight: 500, fontSize: '14px', transition: 'background-color 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = C.redDark; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = C.red; }}
           >
-            <Phone className="w-5 h-5 rotate-[135deg]" />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">Guide visio disponible</span>
+            <Phone size={20} style={{ transform: 'rotate(135deg)' }} />
+            {txt.quit}
+          </button>
         </div>
       </div>
-
-      {/* Participant Details Modal */}
-      <ParticipantCard
-        participant={selectedParticipant}
-        open={showParticipantCard}
-        onClose={() => setShowParticipantCard(false)}
-      />
     </div>
   );
 }

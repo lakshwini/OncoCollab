@@ -57,4 +57,21 @@ export class RoomsService {
         await this.roomRepository.update(parseInt(id, 10), { active: true } as any);
         return this.findOne(id);
     }
+
+    async findByRoomId(roomId: string): Promise<Room | null> {
+        return await this.roomRepository.findOne({
+            where: { roomId }
+        });
+    }
+
+    async findOrCreateByRoomId(roomId: string, name?: string): Promise<Room> {
+        let room = await this.findByRoomId(roomId);
+        if (!room) {
+            room = await this.create({
+                name: name || `Room ${roomId}`,
+                roomId
+            } as any);
+        }
+        return room;
+    }
 }

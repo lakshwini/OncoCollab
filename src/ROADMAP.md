@@ -1,4 +1,4 @@
-# 🗺️ Roadmap OncoLlab - Feuille de Route
+# 🗺️ Roadmap OncoCollab - Feuille de Route
 
 ## 📍 État Actuel : v1.0 - MVP Complet
 
@@ -506,7 +506,7 @@
 
 ## ✨ Vision Long Terme
 
-**OncoLlab deviendra la plateforme de référence pour les RCP en oncologie**, offrant :
+**OncoCollab deviendra la plateforme de référence pour les RCP en oncologie**, offrant :
 
 🌍 **Portée mondiale** - Utilisée dans 100+ hôpitaux  
 🤖 **IA de pointe** - Aide réelle à la décision médicale  
@@ -518,6 +518,6 @@
 
 ---
 
-**OncoLlab** - Roadmap vers l'excellence médicale 🚀
+**OncoCollab** - Roadmap vers l'excellence médicale 🚀
 
 *Ensemble, améliorons la prise en charge oncologique mondiale* 🏥💙

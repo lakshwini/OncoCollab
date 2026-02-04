@@ -21,6 +21,16 @@ export class RoomsController {
         return this.roomsService.findOne(id);
     };
 
+    @Get('by-room-id/:roomId')
+    findByRoomId(@Param('roomId') roomId: string) {
+        return this.roomsService.findByRoomId(roomId);
+    };
+
+    @Post('find-or-create')
+    findOrCreate(@Body() body: { roomId: string; name?: string }) {
+        return this.roomsService.findOrCreateByRoomId(body.roomId, body.name);
+    };
+
     @Patch(':id')
     update(@Param('id') id: string, @Body() updateRoomDto: UpdateRoomDto) {
         return this.roomsService.update(id, updateRoomDto);

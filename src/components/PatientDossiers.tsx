@@ -19,12 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { useLanguage } from '../i18n';
 
 interface PatientDossiersProps {
   onNavigate: (page: Page, dossierId?: string) => void;
 }
 
 export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
+  const { language, t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -33,8 +35,8 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       id: 'D001',
       patientName: 'Martin Pierre',
       patientId: 'P-2025-001',
-      type: 'Cancer du poumon',
-      status: 'En cours',
+      type: language === 'fr' ? 'Cancer du poumon' : 'Lung cancer',
+      statusKey: 'inProgress',
       lastModified: '2025-11-10',
       responsible: 'Dr. Dubois',
     },
@@ -42,8 +44,8 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       id: 'D002',
       patientName: 'Dupont Marie',
       patientId: 'P-2025-002',
-      type: 'Cancer colorectal',
-      status: 'En attente',
+      type: language === 'fr' ? 'Cancer colorectal' : 'Colorectal cancer',
+      statusKey: 'pending',
       lastModified: '2025-11-09',
       responsible: 'Dr. Martin',
     },
@@ -51,8 +53,8 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       id: 'D003',
       patientName: 'Bernard Louis',
       patientId: 'P-2025-003',
-      type: 'Cancer du sein',
-      status: 'Validé',
+      type: language === 'fr' ? 'Cancer du sein' : 'Breast cancer',
+      statusKey: 'validated',
       lastModified: '2025-11-08',
       responsible: 'Dr. Laurent',
     },
@@ -60,8 +62,8 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       id: 'D004',
       patientName: 'Leroy Sophie',
       patientId: 'P-2025-004',
-      type: 'Cancer de la prostate',
-      status: 'En cours',
+      type: language === 'fr' ? 'Cancer de la prostate' : 'Prostate cancer',
+      statusKey: 'inProgress',
       lastModified: '2025-11-07',
       responsible: 'Dr. Dubois',
     },
@@ -69,20 +71,29 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       id: 'D005',
       patientName: 'Moreau Jean',
       patientId: 'P-2025-005',
-      type: 'Lymphome',
-      status: 'En attente',
+      type: language === 'fr' ? 'Lymphome' : 'Lymphoma',
+      statusKey: 'pending',
       lastModified: '2025-11-06',
       responsible: 'Dr. Chen',
     },
   ];
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Validé':
+  const getStatusLabel = (statusKey: string) => {
+    const statusMap: Record<string, string> = {
+      validated: t.statuses.validated,
+      inProgress: t.statuses.inProgress,
+      pending: t.statuses.pending,
+    };
+    return statusMap[statusKey] || statusKey;
+  };
+
+  const getStatusColor = (statusKey: string) => {
+    switch (statusKey) {
+      case 'validated':
         return 'bg-green-100 text-green-700';
-      case 'En cours':
+      case 'inProgress':
         return 'bg-blue-100 text-blue-700';
-      case 'En attente':
+      case 'pending':
         return 'bg-orange-100 text-orange-700';
       default:
         return 'bg-gray-100 text-gray-700';
@@ -90,13 +101,13 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
   };
 
   const filteredDossiers = dossiers.filter((dossier) => {
-    const matchesSearch = 
+    const matchesSearch =
       dossier.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dossier.patientId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dossier.type.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || dossier.status === statusFilter;
-    
+
+    const matchesStatus = statusFilter === 'all' || dossier.statusKey === statusFilter;
+
     return matchesSearch && matchesStatus;
   });
 
@@ -105,12 +116,12 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-gray-900 mb-1">Dossiers patients</h1>
-          <p className="text-gray-600">Gestion des dossiers de concertation pluridisciplinaire</p>
+          <h1 className="text-gray-900 mb-1">{t.patientDossiers.title}</h1>
+          <p className="text-gray-600">{t.patientDossiers.subtitle}</p>
         </div>
         <Button className="bg-blue-600 hover:bg-blue-700">
           <Plus className="w-4 h-4 mr-2" />
-          Créer un dossier
+          {t.patientDossiers.createDossier}
         </Button>
       </div>
 
@@ -119,23 +130,23 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <Input
-            placeholder="Rechercher par nom, ID ou type..."
+            placeholder={t.patientDossiers.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
-        
+
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-48">
             <Filter className="w-4 h-4 mr-2" />
-            <SelectValue placeholder="Filtrer par statut" />
+            <SelectValue placeholder={t.patientDossiers.filterByStatus} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            <SelectItem value="En attente">En attente</SelectItem>
-            <SelectItem value="En cours">En cours</SelectItem>
-            <SelectItem value="Validé">Validé</SelectItem>
+            <SelectItem value="all">{t.patientDossiers.allStatuses}</SelectItem>
+            <SelectItem value="pending">{t.statuses.pending}</SelectItem>
+            <SelectItem value="inProgress">{t.statuses.inProgress}</SelectItem>
+            <SelectItem value="validated">{t.statuses.validated}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -145,13 +156,13 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nom du patient</TableHead>
-              <TableHead>ID Patient</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Statut</TableHead>
-              <TableHead>Dernière modification</TableHead>
-              <TableHead>Responsable</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t.patientDossiers.patientName}</TableHead>
+              <TableHead>{t.patientDossiers.patientId}</TableHead>
+              <TableHead>{t.common.type}</TableHead>
+              <TableHead>{t.common.status}</TableHead>
+              <TableHead>{t.patientDossiers.lastModification}</TableHead>
+              <TableHead>{t.patientDossiers.responsible}</TableHead>
+              <TableHead className="text-right">{t.common.actions}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -161,12 +172,12 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
                 <TableCell className="text-gray-600">{dossier.patientId}</TableCell>
                 <TableCell>{dossier.type}</TableCell>
                 <TableCell>
-                  <Badge className={getStatusColor(dossier.status)}>
-                    {dossier.status}
+                  <Badge className={getStatusColor(dossier.statusKey)}>
+                    {getStatusLabel(dossier.statusKey)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-gray-600">
-                  {new Date(dossier.lastModified).toLocaleDateString('fr-FR')}
+                  {new Date(dossier.lastModified).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')}
                 </TableCell>
                 <TableCell className="text-gray-600">{dossier.responsible}</TableCell>
                 <TableCell className="text-right">
@@ -195,19 +206,19 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
 
       {filteredDossiers.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-gray-600">Aucun dossier trouvé</p>
+          <p className="text-gray-600">{t.patientDossiers.noDossiersFound}</p>
         </div>
       )}
 
       {/* Stats */}
       <div className="flex items-center gap-6 text-sm text-gray-600">
-        <span>{filteredDossiers.length} dossier(s) affiché(s)</span>
+        <span>{filteredDossiers.length} {t.patientDossiers.dossiersDisplayed}</span>
         <span>•</span>
-        <span>{dossiers.filter(d => d.status === 'En attente').length} en attente</span>
+        <span>{dossiers.filter(d => d.statusKey === 'pending').length} {t.statuses.pending.toLowerCase()}</span>
         <span>•</span>
-        <span>{dossiers.filter(d => d.status === 'En cours').length} en cours</span>
+        <span>{dossiers.filter(d => d.statusKey === 'inProgress').length} {t.statuses.inProgress.toLowerCase()}</span>
         <span>•</span>
-        <span>{dossiers.filter(d => d.status === 'Validé').length} validé(s)</span>
+        <span>{dossiers.filter(d => d.statusKey === 'validated').length} {t.statuses.validated.toLowerCase()}</span>
       </div>
     </div>
   );

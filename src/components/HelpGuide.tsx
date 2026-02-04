@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { 
-  BookOpen, 
-  Video, 
-  Users, 
-  Calendar, 
-  FileText, 
+import {
+  BookOpen,
+  Video,
+  Users,
+  Calendar,
+  FileText,
   Settings,
   HelpCircle,
   CheckCircle2,
@@ -22,69 +22,98 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from './ui/accordion';
+import { useLanguage } from '../i18n';
 
 export function HelpGuide() {
+  const { language, t } = useLanguage();
   const [activeGuide, setActiveGuide] = useState<string | null>(null);
 
   const quickStartGuides = [
     {
       id: 'join-meeting',
-      title: 'Comment rejoindre une réunion RCP',
+      title: language === 'fr' ? 'Comment rejoindre une réunion RCP' : 'How to join an RCP meeting',
       icon: Video,
       duration: '2 min',
-      steps: [
+      steps: language === 'fr' ? [
         'Accédez à la section "Calendrier" depuis le menu latéral',
         'Cliquez sur la réunion prévue dans le calendrier',
         'Cliquez sur le bouton "Rejoindre la réunion"',
         'Vérifiez vos paramètres audio/vidéo',
         'Cliquez sur "Entrer dans la salle"'
+      ] : [
+        'Go to the "Calendar" section from the sidebar',
+        'Click on the scheduled meeting in the calendar',
+        'Click the "Join meeting" button',
+        'Check your audio/video settings',
+        'Click "Enter the room"'
       ]
     },
     {
       id: 'create-dossier',
-      title: 'Comment créer un dossier patient',
+      title: language === 'fr' ? 'Comment créer un dossier patient' : 'How to create a patient file',
       icon: FileText,
       duration: '3 min',
-      steps: [
+      steps: language === 'fr' ? [
         'Allez dans "Patients" dans le menu',
         'Cliquez sur "Nouveau dossier patient"',
         'Remplissez les informations obligatoires (nom, prénom, date de naissance)',
         'Ajoutez les documents médicaux nécessaires',
         'Définissez le statut initial (En attente, En cours)',
         'Cliquez sur "Créer le dossier"'
+      ] : [
+        'Go to "Patients" in the menu',
+        'Click on "New patient file"',
+        'Fill in the required information (name, surname, date of birth)',
+        'Add the necessary medical documents',
+        'Set the initial status (Pending, In progress)',
+        'Click "Create file"'
       ]
     },
     {
       id: 'share-documents',
-      title: 'Comment partager des documents',
+      title: language === 'fr' ? 'Comment partager des documents' : 'How to share documents',
       icon: FileText,
       duration: '2 min',
-      steps: [
+      steps: language === 'fr' ? [
         'Ouvrez votre espace de travail',
         'Sélectionnez le document à partager',
         'Cliquez sur "Partager"',
         'Choisissez les participants avec qui partager',
         'Définissez les permissions (lecture seule ou édition)',
         'Cliquez sur "Envoyer"'
+      ] : [
+        'Open your workspace',
+        'Select the document to share',
+        'Click "Share"',
+        'Choose the participants to share with',
+        'Set permissions (read-only or edit)',
+        'Click "Send"'
       ]
     },
     {
       id: 'annotate-imagery',
-      title: 'Comment annoter une imagerie',
+      title: language === 'fr' ? 'Comment annoter une imagerie' : 'How to annotate imagery',
       icon: FileText,
       duration: '3 min',
-      steps: [
+      steps: language === 'fr' ? [
         'Ouvrez le dossier patient contenant l\'imagerie',
         'Cliquez sur l\'imagerie DICOM à annoter',
         'Sélectionnez l\'outil d\'annotation (crayon, texte, forme)',
         'Ajoutez vos annotations sur les zones d\'intérêt',
         'Les suggestions IA apparaîtront automatiquement',
         'Sauvegardez vos annotations'
+      ] : [
+        'Open the patient file containing the imagery',
+        'Click on the DICOM image to annotate',
+        'Select the annotation tool (pen, text, shape)',
+        'Add your annotations on areas of interest',
+        'AI suggestions will appear automatically',
+        'Save your annotations'
       ]
     }
   ];
 
-  const faqItems = [
+  const faqItems = language === 'fr' ? [
     {
       question: 'Comment réinitialiser mon mot de passe ?',
       answer: 'Sur la page de connexion, cliquez sur "Mot de passe oublié ?" et suivez les instructions. Un email sécurisé vous sera envoyé avec un lien de réinitialisation valide pendant 1 heure.'
@@ -109,36 +138,61 @@ export function HelpGuide() {
       question: 'Qu\'arrive-t-il aux annotations IA ?',
       answer: 'Les suggestions d\'annotations IA sont présentées comme des calques séparés. Vous pouvez les valider, les modifier ou les rejeter. Une fois validées, elles sont intégrées au rapport final avec traçabilité complète.'
     }
+  ] : [
+    {
+      question: 'How to reset my password?',
+      answer: 'On the login page, click on "Forgot password?" and follow the instructions. A secure email will be sent to you with a reset link valid for 1 hour.'
+    },
+    {
+      question: 'Why am I automatically logged out?',
+      answer: 'For security reasons, your session automatically expires after 30 minutes of inactivity. This ensures the protection of sensitive medical data.'
+    },
+    {
+      question: 'How does AI suggest meeting slots?',
+      answer: 'The AI assistant analyzes the availability of all participants via their synchronized calendars and automatically suggests the best slots where the maximum number of participants are available.'
+    },
+    {
+      question: 'Are chat conversations saved?',
+      answer: 'Yes, all chat conversations during RCP meetings are automatically archived and associated with the corresponding patient file for complete traceability.'
+    },
+    {
+      question: 'How to sync my Google or Outlook calendar?',
+      answer: 'Go to Settings > Integrations, then click on "Sync with Google Calendar" or "Sync with Outlook". Follow the authorization instructions to connect your account.'
+    },
+    {
+      question: 'What happens to AI annotations?',
+      answer: 'AI annotation suggestions are presented as separate layers. You can validate, modify or reject them. Once validated, they are integrated into the final report with complete traceability.'
+    }
   ];
 
   const videoTutorials = [
     {
       id: '1',
-      title: 'Démarrage rapide - Vue d\'ensemble de OncoLlab',
+      title: language === 'fr' ? 'Démarrage rapide - Vue d\'ensemble de OncoCollab' : 'Quick Start - OncoCollab Overview',
       duration: '5:30',
       thumbnail: '🎬',
-      description: 'Découvrez les fonctionnalités principales de la plateforme'
+      description: language === 'fr' ? 'Découvrez les fonctionnalités principales de la plateforme' : 'Discover the main features of the platform'
     },
     {
       id: '2',
-      title: 'Organiser une réunion RCP complète',
+      title: language === 'fr' ? 'Organiser une réunion RCP complète' : 'Organizing a complete RCP meeting',
       duration: '8:15',
       thumbnail: '📹',
-      description: 'De la planification à la génération du rapport final'
+      description: language === 'fr' ? 'De la planification à la génération du rapport final' : 'From planning to final report generation'
     },
     {
       id: '3',
-      title: 'Utiliser l\'assistant IA pour la planification',
+      title: language === 'fr' ? 'Utiliser l\'assistant IA pour la planification' : 'Using the AI assistant for planning',
       duration: '4:45',
       thumbnail: '🤖',
-      description: 'Optimisez vos planifications avec l\'intelligence artificielle'
+      description: language === 'fr' ? 'Optimisez vos planifications avec l\'intelligence artificielle' : 'Optimize your planning with artificial intelligence'
     },
     {
       id: '4',
-      title: 'Annotations collaboratives sur imagerie médicale',
+      title: language === 'fr' ? 'Annotations collaboratives sur imagerie médicale' : 'Collaborative annotations on medical imagery',
       duration: '6:20',
       thumbnail: '🖼️',
-      description: 'Travaillez en équipe sur les images DICOM'
+      description: language === 'fr' ? 'Travaillez en équipe sur les images DICOM' : 'Work as a team on DICOM images'
     }
   ];
 
@@ -147,24 +201,24 @@ export function HelpGuide() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-white mb-1">Centre d'aide</h1>
+          <h1 className="text-white mb-1">{t.help.title}</h1>
           <p className="text-gray-400">
-            Guides, tutoriels et FAQ pour utiliser OncoLab efficacement
+            {t.help.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700">
             <Download className="w-4 h-4 mr-2" />
-            Guide PDF complet
+            {t.help.downloadPdf}
           </Button>
         </div>
       </div>
 
       <Tabs defaultValue="guides" className="space-y-6">
         <TabsList className="bg-[#1a1f2e] border border-gray-800">
-          <TabsTrigger value="guides">Guides rapides</TabsTrigger>
-          <TabsTrigger value="videos">Tutoriels vidéo</TabsTrigger>
-          <TabsTrigger value="faq">FAQ</TabsTrigger>
+          <TabsTrigger value="guides">{t.help.quickGuides}</TabsTrigger>
+          <TabsTrigger value="videos">{t.help.videoTutorials}</TabsTrigger>
+          <TabsTrigger value="faq">{t.help.faq}</TabsTrigger>
         </TabsList>
 
         {/* Quick Start Guides */}
@@ -181,7 +235,7 @@ export function HelpGuide() {
                       <div>
                         <CardTitle className="text-white">{guide.title}</CardTitle>
                         <CardDescription className="text-gray-400 mt-1">
-                          Durée: {guide.duration}
+                          {t.help.duration}: {guide.duration}
                         </CardDescription>
                       </div>
                     </div>
@@ -198,11 +252,11 @@ export function HelpGuide() {
                       </div>
                     ))}
                   </div>
-                  <Button 
+                  <Button
                     className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
                     onClick={() => setActiveGuide(guide.id)}
                   >
-                    Suivre le guide
+                    {t.help.followGuide}
                     <ChevronRight className="w-4 h-4 ml-2" />
                   </Button>
                 </CardContent>
@@ -213,39 +267,39 @@ export function HelpGuide() {
           {/* Additional Resources */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Ressources supplémentaires</CardTitle>
+              <CardTitle className="text-white">{t.help.additionalResources}</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-gray-800 rounded-lg">
                 <Settings className="w-8 h-8 text-blue-400 mb-3" />
-                <h4 className="text-white mb-2">Configuration initiale</h4>
+                <h4 className="text-white mb-2">{t.help.initialSetup}</h4>
                 <p className="text-sm text-gray-400 mb-3">
-                  Paramétrez votre profil et vos préférences
+                  {t.help.initialSetupDesc}
                 </p>
                 <Button variant="link" className="text-blue-400 hover:text-blue-300 p-0">
-                  En savoir plus →
+                  {t.help.learnMore} →
                 </Button>
               </div>
 
               <div className="p-4 bg-gray-800 rounded-lg">
                 <Users className="w-8 h-8 text-purple-400 mb-3" />
-                <h4 className="text-white mb-2">Gestion d'équipe</h4>
+                <h4 className="text-white mb-2">{t.help.teamManagement}</h4>
                 <p className="text-sm text-gray-400 mb-3">
-                  Invitez et gérez les membres de votre équipe
+                  {t.help.teamManagementDesc}
                 </p>
                 <Button variant="link" className="text-blue-400 hover:text-blue-300 p-0">
-                  En savoir plus →
+                  {t.help.learnMore} →
                 </Button>
               </div>
 
               <div className="p-4 bg-gray-800 rounded-lg">
                 <Calendar className="w-8 h-8 text-green-400 mb-3" />
-                <h4 className="text-white mb-2">Synchronisation</h4>
+                <h4 className="text-white mb-2">{t.help.synchronization}</h4>
                 <p className="text-sm text-gray-400 mb-3">
-                  Synchronisez avec vos calendriers externes
+                  {t.help.synchronizationDesc}
                 </p>
                 <Button variant="link" className="text-blue-400 hover:text-blue-300 p-0">
-                  En savoir plus →
+                  {t.help.learnMore} →
                 </Button>
               </div>
             </CardContent>
@@ -273,7 +327,7 @@ export function HelpGuide() {
                     </div>
                     <Button className="w-full bg-blue-600 hover:bg-blue-700">
                       <Play className="w-4 h-4 mr-2" />
-                      Regarder
+                      {t.help.watch}
                     </Button>
                   </div>
                 </CardContent>
@@ -288,10 +342,10 @@ export function HelpGuide() {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <HelpCircle className="w-6 h-6 text-blue-400" />
-                Questions fréquemment posées
+                {t.help.faqTitle}
               </CardTitle>
               <CardDescription className="text-gray-400">
-                Trouvez rapidement des réponses aux questions les plus courantes
+                {t.help.faqSubtitle}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -313,17 +367,17 @@ export function HelpGuide() {
           {/* Contact Support */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Besoin d'aide supplémentaire ?</CardTitle>
+              <CardTitle className="text-white">{t.help.needMoreHelp}</CardTitle>
               <CardDescription className="text-gray-400">
-                Notre équipe de support est disponible pour vous aider
+                {t.help.supportAvailable}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex items-center gap-4">
               <Button className="bg-blue-600 hover:bg-blue-700">
-                Contacter le support
+                {t.help.contactSupport}
               </Button>
               <Button variant="outline" className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700">
-                Signaler un problème
+                {t.help.reportIssue}
               </Button>
             </CardContent>
           </Card>

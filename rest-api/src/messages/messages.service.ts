@@ -35,4 +35,18 @@ export class MessagesService {
         // Suppression par ID (TypeORM)
         return await this.messageRepository.delete(id);
     }
+
+    async getMessagesForRoom(roomId: string) {
+        return await this.findByRoom(roomId);
+    }
+
+    async saveMessage(content: string, senderId: string, roomId: string) {
+        const createMessageDto: CreateMessageDto = {
+            content,
+            sender: senderId,
+            room: roomId,
+            createdAt: new Date(),
+        };
+        return await this.create(createMessageDto);
+    }
 }

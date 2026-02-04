@@ -1,4 +1,4 @@
-# 📋 Fonctionnalités Implémentées - OncoLlab
+# 📋 Fonctionnalités Implémentées - OncoCollab
 
 ## ✅ User Story 1.1 – Connexion sécurisée
 
@@ -415,4 +415,4 @@
 
 ---
 
-**OncoLlab v1.0** - Plateforme RCP complète et opérationnelle ✨
+**OncoCollab v1.0** - Plateforme RCP complète et opérationnelle ✨

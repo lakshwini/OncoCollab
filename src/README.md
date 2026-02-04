@@ -1,6 +1,6 @@
-# OncoLlab - Plateforme RCP Numérique
+# OncoCollab - Plateforme RCP Numérique
 
-**OncoLlab** est une plateforme complète de Réunion de Concertation Pluridisciplinaire (RCP) médicale pour la prise en charge collaborative des patients en oncologie.
+**OncoCollab** est une plateforme complète de Réunion de Concertation Pluridisciplinaire (RCP) médicale pour la prise en charge collaborative des patients en oncologie.
 
 ## 🎯 Fonctionnalités Principales
 
@@ -168,7 +168,7 @@ Pour une utilisation en production, l'application nécessitera:
 - **Temps réel** pour la collaboration
 - **API sécurisées** pour les données médicales
 
-⚠️ **Important**: OncoLlab n'est pas conçu pour collecter des données personnelles identifiables (PII) ou sécuriser des données sensibles sans infrastructure backend appropriée.
+⚠️ **Important**: OncoCollab n'est pas conçu pour collecter des données personnelles identifiables (PII) ou sécuriser des données sensibles sans infrastructure backend appropriée.
 
 ## 📱 Responsive Design
 
@@ -199,4 +199,4 @@ Ce projet est un prototype de démonstration. Pour une utilisation en production
 
 ---
 
-**OncoLlab** - Collaboration médicale intelligente pour de meilleurs soins oncologiques 🏥
+**OncoCollab** - Collaboration médicale intelligente pour de meilleurs soins oncologiques 🏥

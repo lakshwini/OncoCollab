@@ -54,7 +54,8 @@
       outDir: 'build',
     },
     server: {
-      port: 3000,
+      port: 5173,
+      strictPort: true, // Ne pas basculer sur un autre port
       open: true,
     },
   });

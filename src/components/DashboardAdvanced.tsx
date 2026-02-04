@@ -1,18 +1,12 @@
 import { Page } from '../App';
-import { 
-  Calendar, 
-  FolderOpen, 
-  Video, 
-  Clock, 
-  Users, 
-  FileText, 
-  TrendingUp, 
-  Image,
+import {
+  Calendar,
+  FolderOpen,
+  Video,
+  Clock,
+  Users,
   Plus,
   ArrowRight,
-  CheckCircle2,
-  AlertCircle,
-  XCircle,
   Activity
 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -20,19 +14,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Progress } from './ui/progress';
+import { useLanguage } from '../i18n';
 
 interface DashboardAdvancedProps {
   onNavigate: (page: Page, dossierId?: string) => void;
 }
 
 export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
+  const { language, t } = useLanguage();
+
   const upcomingMeetings = [
     {
       id: '1',
       title: 'RCP - Patient T.D.',
       date: '2024-10-03',
       time: '09:00',
-      status: 'Confirmé',
+      statusKey: 'confirmed',
       participants: 4,
       cancerType: 'Thoracique'
     },
@@ -41,7 +38,7 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       title: 'RCP - Patient P.M.',
       date: '2024-10-09',
       time: '14:00',
-      status: 'En attente',
+      statusKey: 'pending',
       participants: 3,
       cancerType: 'Digestif'
     },
@@ -52,8 +49,8 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       id: 'D001',
       patientName: 'Jean Dupont',
       patientInitials: 'JD',
-      type: 'Cancer du poumon',
-      status: 'En attente',
+      type: language === 'fr' ? 'Cancer du poumon' : 'Lung cancer',
+      statusKey: 'pending',
       lastModified: '15/07/2024',
       urgency: 'high'
     },
@@ -61,8 +58,8 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       id: 'D002',
       patientName: 'Marie Curie',
       patientInitials: 'MC',
-      type: 'Cancer colorectal',
-      status: 'Validé',
+      type: language === 'fr' ? 'Cancer colorectal' : 'Colorectal cancer',
+      statusKey: 'validated',
       lastModified: '14/07/2024',
       urgency: 'low'
     },
@@ -70,45 +67,49 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       id: 'D003',
       patientName: 'Paul Lemoine',
       patientInitials: 'PL',
-      type: 'Lymphome',
-      status: 'En cours',
+      type: language === 'fr' ? 'Lymphome' : 'Lymphoma',
+      statusKey: 'inProgress',
       lastModified: '12/07/2024',
       urgency: 'medium'
     },
   ];
 
   const stats = [
-    { 
-      label: 'Dossiers actifs', 
-      value: '24', 
-      change: '+3 ce mois',
-      icon: FolderOpen, 
-      color: 'text-blue-400', 
-      bg: 'bg-blue-600/20' 
+    {
+      labelKey: 'activeDossiers',
+      value: '24',
+      changeKey: 'thisMonth',
+      changePrefix: '+3 ',
+      icon: FolderOpen,
+      color: 'text-blue-400',
+      bg: 'bg-blue-600/20'
     },
-    { 
-      label: 'RCP planifiées', 
-      value: '12', 
-      change: '+2 cette semaine',
-      icon: Video, 
-      color: 'text-green-400', 
-      bg: 'bg-green-600/20' 
+    {
+      labelKey: 'plannedRCP',
+      value: '12',
+      changeKey: 'thisWeek',
+      changePrefix: '+2 ',
+      icon: Video,
+      color: 'text-green-400',
+      bg: 'bg-green-600/20'
     },
-    { 
-      label: 'En attente validation', 
-      value: '8', 
-      change: 'Urgent',
-      icon: Clock, 
-      color: 'text-yellow-400', 
-      bg: 'bg-yellow-600/20' 
+    {
+      labelKey: 'awaitingValidation',
+      value: '8',
+      changeKey: 'urgent',
+      changePrefix: '',
+      icon: Clock,
+      color: 'text-yellow-400',
+      bg: 'bg-yellow-600/20'
     },
-    { 
-      label: 'Équipe médicale', 
-      value: '18', 
-      change: 'Spécialistes',
-      icon: Users, 
-      color: 'text-purple-400', 
-      bg: 'bg-purple-600/20' 
+    {
+      labelKey: 'medicalTeam',
+      value: '18',
+      changeKey: 'specialists',
+      changePrefix: '',
+      icon: Users,
+      color: 'text-purple-400',
+      bg: 'bg-purple-600/20'
     },
   ];
 
@@ -116,30 +117,46 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
     {
       id: '1',
       type: 'planning',
-      title: 'RCP suggérée pour 3 nouveaux dossiers',
-      description: 'Meilleur créneau: Mercredi 16 Oct à 10:00',
-      action: 'Planifier'
+      titleKey: 'rcpSuggested',
+      descriptionKey: 'bestSlot',
+      action: t.common.plan
     },
     {
       id: '2',
       type: 'analysis',
-      title: 'Analyse IA disponible',
-      description: '2 imageries prêtes pour revue automatique',
-      action: 'Voir'
+      titleKey: 'aiAnalysisAvailable',
+      descriptionKey: 'imagesReadyReview',
+      action: t.common.view
     },
   ];
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Validé':
+  const getStatusLabel = (statusKey: string) => {
+    const statusMap: Record<string, string> = {
+      confirmed: t.dashboard.confirmed,
+      pending: t.dashboard.pending,
+      inProgress: t.dashboard.inProgress,
+      validated: t.dashboard.validated,
+    };
+    return statusMap[statusKey] || statusKey;
+  };
+
+  const getStatusColor = (statusKey: string) => {
+    switch (statusKey) {
+      case 'validated':
         return 'bg-green-500/20 text-green-400 border-green-500/30';
-      case 'En cours':
+      case 'inProgress':
         return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'En attente':
+      case 'pending':
         return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'confirmed':
+        return 'bg-green-500/20 text-green-400 border-green-500/30';
       default:
         return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     }
+  };
+
+  const getDashboardText = (key: string) => {
+    return (t.dashboard as Record<string, string>)[key] || key;
   };
 
   return (
@@ -147,24 +164,24 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-white mb-1">Tableau de bord</h1>
-          <p className="text-gray-400">Vue d'ensemble de votre activité RCP</p>
+          <h1 className="text-white mb-1">{t.dashboard.title}</h1>
+          <p className="text-gray-400">{t.dashboard.subtitle}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
             onClick={() => onNavigate('calendrier')}
           >
             <Calendar className="w-4 h-4 mr-2" />
-            Planifier une RCP
+            {t.dashboard.planRCP}
           </Button>
-          <Button 
+          <Button
             className="bg-blue-600 hover:bg-blue-700"
             onClick={() => onNavigate('dossiers')}
           >
             <Plus className="w-4 h-4 mr-2" />
-            Nouveau dossier
+            {t.dashboard.newDossier}
           </Button>
         </div>
       </div>
@@ -176,9 +193,11 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-gray-400 text-sm">{stat.label}</p>
+                  <p className="text-gray-400 text-sm">{getDashboardText(stat.labelKey)}</p>
                   <p className="text-white text-3xl mt-2">{stat.value}</p>
-                  <p className="text-gray-500 text-xs mt-1">{stat.change}</p>
+                  <p className="text-gray-500 text-xs mt-1">
+                    {stat.changePrefix}{getDashboardText(stat.changeKey)}
+                  </p>
                 </div>
                 <div className={`w-14 h-14 ${stat.bg} rounded-lg flex items-center justify-center`}>
                   <stat.icon className={`w-7 h-7 ${stat.color}`} />
@@ -197,22 +216,22 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Activity className="w-5 h-5 text-blue-400" />
-                Suggestions AgentIA
+                {t.dashboard.aiSuggestions}
               </CardTitle>
               <CardDescription className="text-gray-400">
-                Recommandations intelligentes pour optimiser votre workflow
+                {t.dashboard.aiSuggestionsDesc}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {aiSuggestions.map((suggestion) => (
-                <div 
+                <div
                   key={suggestion.id}
                   className="p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer border border-blue-800/30"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <p className="text-white">{suggestion.title}</p>
-                      <p className="text-sm text-gray-400 mt-1">{suggestion.description}</p>
+                      <p className="text-white">{getDashboardText(suggestion.titleKey)}</p>
+                      <p className="text-sm text-gray-400 mt-1">{getDashboardText(suggestion.descriptionKey)}</p>
                     </div>
                     <Button size="sm" className="bg-blue-600 hover:bg-blue-700 ml-4">
                       {suggestion.action}
@@ -220,12 +239,12 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
                   </div>
                 </div>
               ))}
-              <Button 
-                variant="link" 
+              <Button
+                variant="link"
                 className="w-full text-blue-400 hover:text-blue-300"
                 onClick={() => onNavigate('agentia')}
               >
-                Voir toutes les suggestions
+                {t.dashboard.viewAllSuggestions}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </CardContent>
@@ -236,24 +255,24 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-white">Dossiers récents</CardTitle>
+                  <CardTitle className="text-white">{t.dashboard.recentDossiers}</CardTitle>
                   <CardDescription className="text-gray-400">
-                    Vos derniers dossiers patients
+                    {t.dashboard.recentDossiersDesc}
                   </CardDescription>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
                   onClick={() => onNavigate('dossiers')}
                 >
-                  Voir tout
+                  {t.common.viewAll}
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {recentDossiers.map((dossier) => (
-                <div 
+                <div
                   key={dossier.id}
                   className="p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
                   onClick={() => onNavigate('dossier-detail', dossier.id)}
@@ -268,22 +287,22 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-white">{dossier.patientName}</p>
-                          <Badge className={getStatusColor(dossier.status)}>
-                            {dossier.status}
+                          <Badge className={getStatusColor(dossier.statusKey)}>
+                            {getStatusLabel(dossier.statusKey)}
                           </Badge>
                         </div>
                         <p className="text-sm text-gray-400 mt-1">{dossier.type}</p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Modifié le {dossier.lastModified}
+                          {t.common.modifiedOn} {dossier.lastModified}
                         </p>
                       </div>
                     </div>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
                     >
-                      Ouvrir
+                      {t.common.open}
                     </Button>
                   </div>
                 </div>
@@ -299,12 +318,12 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-green-400" />
-                Prochaines RCP
+                {t.dashboard.upcomingRCP}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {upcomingMeetings.map((meeting) => (
-                <div 
+                <div
                   key={meeting.id}
                   className="p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
                   onClick={() => onNavigate('reunions')}
@@ -313,33 +332,29 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
                     <div className="flex-1">
                       <p className="text-white text-sm">{meeting.title}</p>
                       <p className="text-xs text-gray-400 mt-1">
-                        {new Date(meeting.date).toLocaleDateString('fr-FR')} • {meeting.time}
+                        {new Date(meeting.date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')} • {meeting.time}
                       </p>
                     </div>
-                    <Badge 
+                    <Badge
                       variant="secondary"
-                      className={
-                        meeting.status === 'Confirmé' 
-                          ? 'bg-green-500/20 text-green-400 border-green-500/30' 
-                          : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                      }
+                      className={getStatusColor(meeting.statusKey)}
                     >
-                      {meeting.status}
+                      {getStatusLabel(meeting.statusKey)}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <Users className="w-3 h-3" />
-                    {meeting.participants} participants
+                    {meeting.participants} {t.common.participants}
                   </div>
                 </div>
               ))}
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="w-full bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
                 onClick={() => onNavigate('calendrier')}
               >
                 <Calendar className="w-4 h-4 mr-2" />
-                Voir le calendrier
+                {t.dashboard.viewCalendar}
               </Button>
             </CardContent>
           </Card>
@@ -347,26 +362,26 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
           {/* Quick Stats */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Activité du mois</CardTitle>
+              <CardTitle className="text-white">{t.dashboard.monthActivity}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">Dossiers traités</span>
+                  <span className="text-gray-400">{t.dashboard.processedDossiers}</span>
                   <span className="text-white">18/24</span>
                 </div>
                 <Progress value={75} className="h-2" />
               </div>
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">RCP complétées</span>
+                  <span className="text-gray-400">{t.dashboard.completedRCP}</span>
                   <span className="text-white">8/12</span>
                 </div>
                 <Progress value={67} className="h-2" />
               </div>
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">Rapports validés</span>
+                  <span className="text-gray-400">{t.dashboard.validatedReports}</span>
                   <span className="text-white">15/18</span>
                 </div>
                 <Progress value={83} className="h-2" />
@@ -377,29 +392,29 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
           {/* System Status */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">État du système</CardTitle>
+              <CardTitle className="text-white">{t.dashboard.systemStatus}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">Serveurs</span>
+                  <span className="text-sm text-gray-300">{t.dashboard.servers}</span>
                 </div>
-                <span className="text-sm text-green-400">Opérationnel</span>
+                <span className="text-sm text-green-400">{t.dashboard.operational}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">Sauvegarde</span>
+                  <span className="text-sm text-gray-300">{t.dashboard.backup}</span>
                 </div>
-                <span className="text-sm text-green-400">Actif</span>
+                <span className="text-sm text-green-400">{t.dashboard.active}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-gray-300">AgentIA</span>
                 </div>
-                <span className="text-sm text-green-400">En ligne</span>
+                <span className="text-sm text-green-400">{t.dashboard.online}</span>
               </div>
             </CardContent>
           </Card>

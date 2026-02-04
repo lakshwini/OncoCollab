@@ -1,12 +1,12 @@
-# 🚀 Guide de Démarrage Rapide - OncoLlab
+# 🚀 Guide de Démarrage Rapide - OncoCollab
 
-Bienvenue sur **OncoLlab**, votre plateforme de Réunion de Concertation Pluridisciplinaire (RCP) numérique !
+Bienvenue sur **OncoCollab**, votre plateforme de Réunion de Concertation Pluridisciplinaire (RCP) numérique !
 
 ## 📱 Première Connexion
 
 ### 1. Page de connexion
 
-Lors du lancement de l'application, vous arriverez sur la page de connexion sécurisée OncoLlab.
+Lors du lancement de l'application, vous arriverez sur la page de connexion sécurisée OncoCollab.
 
 **Comptes de démonstration disponibles :**
 
@@ -281,7 +281,7 @@ Chaque guide :
 - 🎯 Bouton "Suivre le guide"
 
 **🎬 Tutoriels vidéo**
-- Vue d'ensemble OncoLlab (5:30)
+- Vue d'ensemble OncoCollab (5:30)
 - Organiser une RCP complète (8:15)
 - Utiliser l'assistant IA (4:45)
 - Annotations collaboratives (6:20)
@@ -417,15 +417,15 @@ Chaque guide :
 
 ### Support rapide
 
-- 📧 Email : support@oncollab.fr (fictif)
+- 📧 Email : support@oncocollab.fr (fictif)
 - 📞 Téléphone : +33 X XX XX XX XX (fictif)
 - 💬 Chat : Disponible 24/7 (fictif)
 
 ---
 
-## ✨ Profitez d'OncoLlab !
+## ✨ Profitez d'OncoCollab !
 
-Vous êtes maintenant prêt à utiliser **OncoLlab** pour vos Réunions de Concertation Pluridisciplinaire.
+Vous êtes maintenant prêt à utiliser **OncoCollab** pour vos Réunions de Concertation Pluridisciplinaire.
 
 **Fonctionnalités clés à explorer :**
 
@@ -437,6 +437,6 @@ Vous êtes maintenant prêt à utiliser **OncoLlab** pour vos Réunions de Conce
 
 ---
 
-**OncoLlab** - Collaboration médicale intelligente 🏥
+**OncoCollab** - Collaboration médicale intelligente 🏥
 
 *Pour toute question, consultez le centre d'aide ou contactez le support.*

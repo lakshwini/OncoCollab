@@ -4,8 +4,10 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
+import { useLanguage } from '../i18n';
 
 export function Messaging() {
+  const { language, t } = useLanguage();
   const [selectedConversation, setSelectedConversation] = useState('1');
   const [message, setMessage] = useState('');
 
@@ -13,8 +15,8 @@ export function Messaging() {
     {
       id: '1',
       name: 'Dr. Laurent Martin',
-      role: 'Radiologue',
-      lastMessage: 'Les images du scanner sont prêtes',
+      role: language === 'fr' ? 'Radiologue' : 'Radiologist',
+      lastMessage: language === 'fr' ? 'Les images du scanner sont prêtes' : 'The CT scan images are ready',
       time: '10:30',
       unread: 2,
       online: true,
@@ -22,18 +24,18 @@ export function Messaging() {
     {
       id: '2',
       name: 'Dr. Sophie Chen',
-      role: 'Gastro-entérologue',
-      lastMessage: 'Merci pour le compte-rendu',
-      time: 'Hier',
+      role: language === 'fr' ? 'Gastro-entérologue' : 'Gastroenterologist',
+      lastMessage: language === 'fr' ? 'Merci pour le compte-rendu' : 'Thanks for the report',
+      time: language === 'fr' ? 'Hier' : 'Yesterday',
       unread: 0,
       online: false,
     },
     {
       id: '3',
-      name: 'Équipe RCP Thoracique',
-      role: 'Groupe',
-      lastMessage: 'Dr. Dubois: Rendez-vous à 10h demain',
-      time: 'Hier',
+      name: language === 'fr' ? 'Équipe RCP Thoracique' : 'Thoracic RCP Team',
+      role: t.messaging.group,
+      lastMessage: language === 'fr' ? 'Dr. Dubois: Rendez-vous à 10h demain' : 'Dr. Dubois: Meeting at 10 AM tomorrow',
+      time: language === 'fr' ? 'Hier' : 'Yesterday',
       unread: 0,
       online: false,
     },
@@ -43,21 +45,21 @@ export function Messaging() {
     {
       id: '1',
       sender: 'Dr. Laurent Martin',
-      content: 'Bonjour, j\'ai terminé l\'analyse du scanner',
+      content: language === 'fr' ? 'Bonjour, j\'ai terminé l\'analyse du scanner' : 'Hello, I finished the CT scan analysis',
       time: '10:15',
       isMe: false,
     },
     {
       id: '2',
-      sender: 'Moi',
-      content: 'Parfait, pouvez-vous me partager les images ?',
+      sender: t.messaging.me,
+      content: language === 'fr' ? 'Parfait, pouvez-vous me partager les images ?' : 'Perfect, can you share the images?',
       time: '10:20',
       isMe: true,
     },
     {
       id: '3',
       sender: 'Dr. Laurent Martin',
-      content: 'Les images du scanner sont prêtes',
+      content: language === 'fr' ? 'Les images du scanner sont prêtes' : 'The CT scan images are ready',
       time: '10:30',
       isMe: false,
     },
@@ -77,7 +79,7 @@ export function Messaging() {
         <div className="p-4 border-b border-gray-200">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <Input placeholder="Rechercher..." className="pl-10" />
+            <Input placeholder={t.messaging.search} className="pl-10" />
           </div>
         </div>
 
@@ -132,7 +134,7 @@ export function Messaging() {
             </Avatar>
             <div>
               <h3 className="text-gray-900">Dr. Laurent Martin</h3>
-              <p className="text-sm text-gray-600">Radiologue • En ligne</p>
+              <p className="text-sm text-gray-600">{language === 'fr' ? 'Radiologue' : 'Radiologist'} • {t.messaging.online}</p>
             </div>
           </div>
           <Button variant="ghost" size="icon">
@@ -173,13 +175,13 @@ export function Messaging() {
               <Paperclip className="w-5 h-5" />
             </Button>
             <Input
-              placeholder="Votre message..."
+              placeholder={t.messaging.yourMessage}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
               className="flex-1"
             />
-            <Button 
+            <Button
               className="bg-blue-600 hover:bg-blue-700"
               onClick={handleSendMessage}
             >

@@ -8,5 +8,6 @@ import { Message } from './entities/message.entity'; // On va créer ce fichier 
   imports: [TypeOrmModule.forFeature([Message])],
   controllers: [MessagesController],
   providers: [MessagesService],
+  exports: [MessagesService],
 })
 export class MessagesModule {}

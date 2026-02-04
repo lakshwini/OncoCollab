@@ -3,7 +3,6 @@ import { User } from '../App';
 import { Bell, LogOut, User as UserIcon, ChevronDown, Clock } from 'lucide-react';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { NotificationsPanel } from './NotificationsPanel';
+import { useLanguage } from '../i18n';
 
 interface HeaderProps {
   user: User;
@@ -20,6 +20,7 @@ interface HeaderProps {
 }
 
 export function Header({ user, onLogout }: HeaderProps) {
+  const { language, t } = useLanguage();
   const [showNotifications, setShowNotifications] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -31,12 +32,9 @@ export function Header({ user, onLogout }: HeaderProps) {
     return () => clearInterval(interval);
   });
 
-  const roleLabels: Record<string, string> = {
-    radiologue: 'Radiologue',
-    oncologue: 'Oncologue',
-    chirurgien: 'Chirurgien',
-    pathologiste: 'Pathologiste',
-    admin: 'Administrateur',
+  const getRoleLabel = (role: string) => {
+    const roles = t.settings.roles as Record<string, string>;
+    return roles[role] || role;
   };
 
   const roleColors: Record<string, string> = {
@@ -52,11 +50,11 @@ export function Header({ user, onLogout }: HeaderProps) {
       <div className="flex items-center gap-4">
         <div className="text-gray-400 text-sm flex items-center gap-2">
           <Clock className="w-4 h-4" />
-          {currentTime.toLocaleDateString('fr-FR', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
+          {currentTime.toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
           })}
         </div>
       </div>
@@ -90,29 +88,29 @@ export function Header({ user, onLogout }: HeaderProps) {
               </Avatar>
               <div className="text-left">
                 <div className="text-sm text-white">{user.name}</div>
-                <div className="text-xs text-gray-400">{roleLabels[user.role]}</div>
+                <div className="text-xs text-gray-400">{getRoleLabel(user.role)}</div>
               </div>
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-[#1a1f2e] border-gray-800">
-            <DropdownMenuLabel className="text-white">Mon compte</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-white">{t.header.myAccount}</DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-gray-800" />
             <DropdownMenuItem className="text-gray-300 focus:bg-gray-800 focus:text-white">
               <UserIcon className="w-4 h-4 mr-2" />
-              Profil
+              {t.header.profile}
             </DropdownMenuItem>
             <DropdownMenuItem className="text-gray-300 focus:bg-gray-800 focus:text-white">
               <Clock className="w-4 h-4 mr-2" />
-              Historique des connexions
+              {t.header.connectionHistory}
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-gray-800" />
-            <DropdownMenuItem 
-              onClick={onLogout} 
+            <DropdownMenuItem
+              onClick={onLogout}
               className="text-red-400 focus:bg-red-900/20 focus:text-red-300"
             >
               <LogOut className="w-4 h-4 mr-2" />
-              Déconnexion
+              {t.header.logout}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

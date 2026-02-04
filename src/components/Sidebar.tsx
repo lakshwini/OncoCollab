@@ -1,18 +1,18 @@
 import { Page, UserRole } from '../App';
-import { 
-  LayoutDashboard, 
-  FolderOpen, 
-  Video, 
-  MessageSquare, 
-  Bot, 
-  Settings, 
+import {
+  LayoutDashboard,
+  FolderOpen,
+  Video,
+  MessageSquare,
+  Bot,
+  Settings,
   Calendar,
   FileText,
   HelpCircle,
-  BarChart3,
   ClipboardCheck
 } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { useLanguage } from '../i18n';
 
 interface SidebarProps {
   currentPage: Page;
@@ -21,21 +21,27 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
+  const { t } = useLanguage();
+
   const menuItems = [
-    { id: 'dashboard' as Page, label: 'Tableau de bord', icon: LayoutDashboard },
-    { id: 'dossiers' as Page, label: 'Patients', icon: FolderOpen },
-    { id: 'calendrier' as Page, label: 'Calendrier RCP', icon: Calendar },
-    { id: 'mes-prerequis' as Page, label: 'Mes Pré-requis', icon: ClipboardCheck, badge: '5' },
-    { id: 'workspace' as Page, label: 'Mes Documents', icon: FileText, badge: '3' },
-    { id: 'reunions' as Page, label: 'Réunions', icon: Video },
-    { id: 'messagerie' as Page, label: 'Messagerie', icon: MessageSquare },
-    { id: 'agentia' as Page, label: 'AgentIA', icon: Bot, highlight: true },
+    { id: 'dashboard' as Page, labelKey: 'dashboard', icon: LayoutDashboard },
+    { id: 'dossiers' as Page, labelKey: 'patients', icon: FolderOpen },
+    { id: 'calendrier' as Page, labelKey: 'calendar', icon: Calendar },
+    { id: 'mes-prerequis' as Page, labelKey: 'myPrerequisites', icon: ClipboardCheck, badge: '5' },
+    { id: 'workspace' as Page, labelKey: 'myDocuments', icon: FileText, badge: '3' },
+    { id: 'reunions' as Page, labelKey: 'meetings', icon: Video },
+    { id: 'messagerie' as Page, labelKey: 'messaging', icon: MessageSquare },
+    { id: 'agentia' as Page, labelKey: 'agentIA', icon: Bot, highlight: true },
   ];
 
   const bottomItems = [
-    { id: 'aide' as Page, label: 'Aide', icon: HelpCircle },
-    { id: 'parametres' as Page, label: 'Paramètres', icon: Settings },
+    { id: 'aide' as Page, labelKey: 'help', icon: HelpCircle },
+    { id: 'parametres' as Page, labelKey: 'settings', icon: Settings },
   ];
+
+  const getLabel = (labelKey: string) => {
+    return (t.sidebar as Record<string, string>)[labelKey] || labelKey;
+  };
 
   return (
     <aside className="w-64 bg-[#1a1f2e] border-r border-gray-800 flex flex-col">
@@ -48,8 +54,8 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
             </svg>
           </div>
           <div>
-            <h2 className="text-white">OncoLlab</h2>
-            <p className="text-xs text-gray-400">Plateforme RCP</p>
+            <h2 className="text-white">OncoCollab</h2>
+            <p className="text-xs text-gray-400">{t.sidebar.rcpPlatform}</p>
           </div>
         </div>
       </div>
@@ -59,7 +65,7 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id;
-            
+
             return (
               <li key={item.id}>
                 <button
@@ -73,7 +79,7 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
                   }`}
                 >
                   <Icon className="w-5 h-5" />
-                  <span className="flex-1 text-left">{item.label}</span>
+                  <span className="flex-1 text-left">{getLabel(item.labelKey)}</span>
                   {item.badge && !isActive && (
                     <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs px-2 py-0 h-5">
                       {item.badge}
@@ -89,12 +95,12 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
         </ul>
 
         <div className="mt-6 pt-6 border-t border-gray-800">
-          <p className="text-xs text-gray-500 px-4 mb-2">SUPPORT</p>
+          <p className="text-xs text-gray-500 px-4 mb-2">{t.sidebar.support}</p>
           <ul className="space-y-1">
             {bottomItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentPage === item.id;
-              
+
               return (
                 <li key={item.id}>
                   <button
@@ -106,7 +112,7 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
                     }`}
                   >
                     <Icon className="w-5 h-5" />
-                    <span className="flex-1 text-left">{item.label}</span>
+                    <span className="flex-1 text-left">{getLabel(item.labelKey)}</span>
                   </button>
                 </li>
               );
@@ -120,9 +126,9 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
         <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
           <div className="flex items-center gap-2 text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span className="text-xs">Connexion sécurisée</span>
+            <span className="text-xs">{t.sidebar.secureConnection}</span>
           </div>
-          <p className="text-xs text-gray-500 mt-1">SSL/TLS actif</p>
+          <p className="text-xs text-gray-500 mt-1">{t.sidebar.sslActive}</p>
         </div>
       </div>
     </aside>

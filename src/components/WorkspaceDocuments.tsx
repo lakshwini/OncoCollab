@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Plus, 
-  Download, 
+import {
+  Search,
+  Filter,
+  Plus,
+  Download,
   Eye,
   MoreVertical,
   FileText,
@@ -39,95 +39,106 @@ import {
   TableHeader,
   TableRow,
 } from './ui/table';
+import { useLanguage } from '../i18n';
 
 interface WorkspaceDocumentsProps {
   userName?: string;
   userRole?: string;
 }
 
-export function WorkspaceDocuments({ 
+export function WorkspaceDocuments({
   userName = "Dr. Martin",
   userRole = "Cardiologue"
 }: WorkspaceDocumentsProps) {
+  const { language, t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const getStatusLabel = (statusKey: string) => {
+    const statusMap: Record<string, string> = {
+      awaitingValidation: t.workspace.awaitingValidation,
+      validated: t.statuses.validated,
+      shared: t.workspace.shared,
+    };
+    return statusMap[statusKey] || statusKey;
+  };
+
   const documents = [
     {
       id: '1',
-      name: 'Rapport RCP - Jean Dupont',
+      name: language === 'fr' ? 'Rapport RCP - Jean Dupont' : 'RCP Report - Jean Dupont',
       patient: 'Jean Dupont',
-      type: 'Rapport',
+      type: language === 'fr' ? 'Rapport' : 'Report',
       lastModified: '15/07/2024',
-      status: 'En attente de validation',
+      statusKey: 'awaitingValidation',
       statusColor: 'yellow',
-      owner: 'Vous',
+      owner: language === 'fr' ? 'Vous' : 'You',
       shared: false
     },
     {
       id: '2',
-      name: 'Analyse sanguine - Marie Curie',
+      name: language === 'fr' ? 'Analyse sanguine - Marie Curie' : 'Blood Analysis - Marie Curie',
       patient: 'Marie Curie',
-      type: 'Analyse',
+      type: language === 'fr' ? 'Analyse' : 'Analysis',
       lastModified: '14/07/2024',
-      status: 'Validé',
+      statusKey: 'validated',
       statusColor: 'green',
       owner: 'Dr. Lefevre',
       shared: true
     },
     {
       id: '3',
-      name: 'Compte-rendu opératoire - Paul Lemoine',
+      name: language === 'fr' ? 'Compte-rendu opératoire - Paul Lemoine' : 'Surgical Report - Paul Lemoine',
       patient: 'Paul Lemoine',
-      type: 'Compte-rendu',
+      type: language === 'fr' ? 'Compte-rendu' : 'Report',
       lastModified: '12/07/2024',
-      status: 'Validé',
+      statusKey: 'validated',
       statusColor: 'green',
       owner: 'Dr. Bernard',
       shared: true
     },
     {
       id: '4',
-      name: 'Protocole de chimiothérapie - H. Langevin',
+      name: language === 'fr' ? 'Protocole de chimiothérapie - H. Langevin' : 'Chemotherapy Protocol - H. Langevin',
       patient: 'Hélène Langevin',
-      type: 'Protocole',
+      type: language === 'fr' ? 'Protocole' : 'Protocol',
       lastModified: '11/07/2024',
-      status: 'Partagé',
+      statusKey: 'shared',
       statusColor: 'blue',
       owner: 'Dr. Moreau',
       shared: true
     },
     {
       id: '5',
-      name: 'Rapport RCP - Alain Prost',
+      name: language === 'fr' ? 'Rapport RCP - Alain Prost' : 'RCP Report - Alain Prost',
       patient: 'Alain Prost',
-      type: 'Rapport',
+      type: language === 'fr' ? 'Rapport' : 'Report',
       lastModified: '10/07/2024',
-      status: 'En attente de validation',
+      statusKey: 'awaitingValidation',
       statusColor: 'yellow',
-      owner: 'Vous',
+      owner: language === 'fr' ? 'Vous' : 'You',
       shared: false
     },
   ];
 
   const recentDocuments = documents.slice(0, 3);
-  const pendingValidation = documents.filter(d => d.status === 'En attente de validation');
+  const pendingValidation = documents.filter(d => d.statusKey === 'awaitingValidation');
 
   return (
     <div className="min-h-screen bg-[#0f1419] p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-white mb-1">Mon Espace de Travail</h1>
+          <h1 className="text-white mb-1">{t.workspace.title}</h1>
           <p className="text-gray-400">
-            Gérez vos documents médicaux, validez les rapports et collaborez avec vos confrères.
+            {t.workspace.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-2" />
-            Ajouter un document
+            {t.workspace.addDocument}
           </Button>
         </div>
       </div>
@@ -138,7 +149,7 @@ export function WorkspaceDocuments({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Mes Documents</p>
+                <p className="text-gray-400 text-sm">{t.workspace.myDocuments}</p>
                 <p className="text-white text-2xl mt-1">24</p>
               </div>
               <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center">
@@ -152,7 +163,7 @@ export function WorkspaceDocuments({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Partagés avec moi</p>
+                <p className="text-gray-400 text-sm">{t.workspace.sharedWithMe}</p>
                 <p className="text-white text-2xl mt-1">12</p>
               </div>
               <div className="w-12 h-12 bg-purple-600/20 rounded-lg flex items-center justify-center">
@@ -166,7 +177,7 @@ export function WorkspaceDocuments({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Rapports à valider</p>
+                <p className="text-gray-400 text-sm">{t.workspace.reportsToValidate}</p>
                 <p className="text-white text-2xl mt-1">
                   {pendingValidation.length}
                   <Badge className="ml-2 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
@@ -189,12 +200,12 @@ export function WorkspaceDocuments({
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-white">Tous les documents</CardTitle>
+                <CardTitle className="text-white">{t.workspace.allDocuments}</CardTitle>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <Input
-                      placeholder="Rechercher par nom de document, patient..."
+                      placeholder={t.workspace.searchPlaceholder}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-10 bg-gray-800 border-gray-700 text-white w-80"
@@ -202,21 +213,21 @@ export function WorkspaceDocuments({
                   </div>
                 </div>
               </div>
-              
+
               {/* Filters */}
               <div className="flex items-center gap-3 mt-4">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
                   <SelectTrigger className="w-40 bg-gray-800 border-gray-700 text-white">
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4" />
-                      <SelectValue placeholder="Type" />
+                      <SelectValue placeholder={t.common.type} />
                     </div>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les types</SelectItem>
-                    <SelectItem value="rapport">Rapport</SelectItem>
-                    <SelectItem value="analyse">Analyse</SelectItem>
-                    <SelectItem value="protocole">Protocole</SelectItem>
+                    <SelectItem value="all">{t.workspace.allTypes}</SelectItem>
+                    <SelectItem value="rapport">{language === 'fr' ? 'Rapport' : 'Report'}</SelectItem>
+                    <SelectItem value="analyse">{language === 'fr' ? 'Analyse' : 'Analysis'}</SelectItem>
+                    <SelectItem value="protocole">{language === 'fr' ? 'Protocole' : 'Protocol'}</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -224,14 +235,14 @@ export function WorkspaceDocuments({
                   <SelectTrigger className="w-40 bg-gray-800 border-gray-700 text-white">
                     <div className="flex items-center gap-2">
                       <Filter className="w-4 h-4" />
-                      <SelectValue placeholder="Statut" />
+                      <SelectValue placeholder={t.common.status} />
                     </div>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les statuts</SelectItem>
-                    <SelectItem value="validated">Validé</SelectItem>
-                    <SelectItem value="pending">En attente</SelectItem>
-                    <SelectItem value="shared">Partagé</SelectItem>
+                    <SelectItem value="all">{t.workspace.allStatuses}</SelectItem>
+                    <SelectItem value="validated">{t.statuses.validated}</SelectItem>
+                    <SelectItem value="pending">{t.statuses.pending}</SelectItem>
+                    <SelectItem value="shared">{t.workspace.shared}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -241,11 +252,11 @@ export function WorkspaceDocuments({
               <Table>
                 <TableHeader>
                   <TableRow className="border-gray-800 hover:bg-transparent">
-                    <TableHead className="text-gray-400">NOM DU DOCUMENT</TableHead>
-                    <TableHead className="text-gray-400">PATIENT</TableHead>
-                    <TableHead className="text-gray-400">DERNIÈRE MODIFICATION</TableHead>
-                    <TableHead className="text-gray-400">STATUT</TableHead>
-                    <TableHead className="text-gray-400">ACTIONS</TableHead>
+                    <TableHead className="text-gray-400">{t.workspace.documentName.toUpperCase()}</TableHead>
+                    <TableHead className="text-gray-400">{t.common.patient.toUpperCase()}</TableHead>
+                    <TableHead className="text-gray-400">{t.workspace.lastModification.toUpperCase()}</TableHead>
+                    <TableHead className="text-gray-400">{t.common.status.toUpperCase()}</TableHead>
+                    <TableHead className="text-gray-400">{t.common.actions.toUpperCase()}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -255,32 +266,32 @@ export function WorkspaceDocuments({
                       <TableCell className="text-gray-300">{doc.patient}</TableCell>
                       <TableCell className="text-gray-400">{doc.lastModified}</TableCell>
                       <TableCell>
-                        <Badge 
+                        <Badge
                           className={`
                             ${doc.statusColor === 'yellow' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : ''}
                             ${doc.statusColor === 'green' ? 'bg-green-500/20 text-green-400 border-green-500/30' : ''}
                             ${doc.statusColor === 'blue' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : ''}
                           `}
                         >
-                          {doc.status}
+                          {getStatusLabel(doc.statusKey)}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
                           >
-                            Détails
+                            {t.common.details}
                           </Button>
-                          {doc.status === 'En attente de validation' && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                          {doc.statusKey === 'awaitingValidation' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
                             >
-                              Valider
+                              {t.common.validate}
                             </Button>
                           )}
                         </div>
@@ -300,7 +311,7 @@ export function WorkspaceDocuments({
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Clock className="w-5 h-5 text-yellow-400" />
-                Rapports à valider
+                {t.workspace.reportsToValidate}
                 <Badge className="ml-auto bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
                   {pendingValidation.length}
                 </Badge>
@@ -308,7 +319,7 @@ export function WorkspaceDocuments({
             </CardHeader>
             <CardContent className="space-y-3">
               {pendingValidation.map((doc) => (
-                <div 
+                <div
                   key={doc.id}
                   className="p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
                 >
@@ -319,10 +330,10 @@ export function WorkspaceDocuments({
                       <p className="text-xs text-gray-400 mt-1">{doc.patient}</p>
                       <div className="flex items-center gap-2 mt-2">
                         <Button size="sm" variant="outline" className="h-7 text-xs border-gray-700 text-white hover:bg-gray-700">
-                          Voir
+                          {t.common.view}
                         </Button>
                         <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700">
-                          Valider
+                          {t.common.validate}
                         </Button>
                       </div>
                     </div>
@@ -337,12 +348,12 @@ export function WorkspaceDocuments({
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Share2 className="w-5 h-5 text-purple-400" />
-                Partagés avec moi
+                {t.workspace.sharedWithMe}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {documents.filter(d => d.shared).slice(0, 3).map((doc) => (
-                <div 
+                <div
                   key={doc.id}
                   className="p-2 rounded hover:bg-gray-800 transition-colors cursor-pointer"
                 >
@@ -365,13 +376,13 @@ export function WorkspaceDocuments({
           {/* Storage Info */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Stockage</CardTitle>
+              <CardTitle className="text-white">{t.workspace.storage}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 <div>
                   <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-gray-400">Utilisé</span>
+                    <span className="text-gray-400">{t.workspace.used}</span>
                     <span className="text-white">2.4 GB / 10 GB</span>
                   </div>
                   <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
@@ -379,7 +390,7 @@ export function WorkspaceDocuments({
                   </div>
                 </div>
                 <p className="text-xs text-gray-500">
-                  Sauvegarde quotidienne automatique activée
+                  {t.workspace.dailyBackupEnabled}
                 </p>
               </div>
             </CardContent>

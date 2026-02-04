@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
+import { useLanguage } from '../i18n';
 
 interface Prerequisite {
   id: string;
-  title: string;
+  titleKey: string;
   status: 'completed' | 'pending';
 }
 
@@ -27,80 +28,95 @@ interface MyPrerequisitesProps {
 }
 
 export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) {
+  const { language, t } = useLanguage();
   const [expandedMeetings, setExpandedMeetings] = useState<Set<string>>(new Set(['1']));
 
-  // Données mockées - dans un vrai système, cela viendrait d'une API
+  const getPrerequisiteTitle = (key: string) => {
+    const titles: Record<string, Record<string, string>> = {
+      consultPatientFiles: { fr: 'Consulter dossiers patients', en: 'Review patient files' },
+      analyzeImaging: { fr: 'Analyser imageries', en: 'Analyze imaging' },
+      prepareAnnotations: { fr: 'Préparer annotations', en: 'Prepare annotations' },
+      verifyEquipment: { fr: 'Vérifier matériel partage', en: 'Verify sharing equipment' },
+      analyzeBiologicalTests: { fr: 'Analyser bilans biologiques', en: 'Analyze biological tests' },
+      prepareTreatmentProtocols: { fr: 'Préparer protocoles traitement', en: 'Prepare treatment protocols' },
+      checkContraindications: { fr: 'Vérifier contre-indications', en: 'Check contraindications' },
+      evaluateSurgicalFeasibility: { fr: 'Évaluer faisabilité chirurgicale', en: 'Evaluate surgical feasibility' },
+      prepareSurgicalOptions: { fr: 'Préparer options opératoires', en: 'Prepare surgical options' },
+    };
+    return titles[key]?.[language] || key;
+  };
+
   const meetings: Meeting[] = [
     {
       id: '1',
-      title: 'RCP Oncologie Thoracique',
+      title: language === 'fr' ? 'RCP Oncologie Thoracique' : 'Thoracic Oncology RCP',
       date: '2025-11-11',
       time: '10:00',
       duration: '2h',
       prerequisites:
         userRole === 'radiologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-              { id: 'p2', title: 'Analyser imageries', status: 'completed' as const },
-              { id: 'p3', title: 'Préparer annotations', status: 'pending' as const },
-              { id: 'p4', title: 'Vérifier matériel partage', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'completed' as const },
+              { id: 'p2', titleKey: 'analyzeImaging', status: 'completed' as const },
+              { id: 'p3', titleKey: 'prepareAnnotations', status: 'pending' as const },
+              { id: 'p4', titleKey: 'verifyEquipment', status: 'pending' as const },
             ]
           : userRole === 'oncologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-              { id: 'p2', title: 'Analyser bilans biologiques', status: 'pending' as const },
-              { id: 'p3', title: 'Préparer protocoles traitement', status: 'pending' as const },
-              { id: 'p4', title: 'Vérifier contre-indications', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'completed' as const },
+              { id: 'p2', titleKey: 'analyzeBiologicalTests', status: 'pending' as const },
+              { id: 'p3', titleKey: 'prepareTreatmentProtocols', status: 'pending' as const },
+              { id: 'p4', titleKey: 'checkContraindications', status: 'pending' as const },
             ]
           : [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-              { id: 'p2', title: 'Évaluer faisabilité chirurgicale', status: 'completed' as const },
-              { id: 'p3', title: 'Préparer options opératoires', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'completed' as const },
+              { id: 'p2', titleKey: 'evaluateSurgicalFeasibility', status: 'completed' as const },
+              { id: 'p3', titleKey: 'prepareSurgicalOptions', status: 'pending' as const },
             ],
     },
     {
       id: '2',
-      title: 'RCP Cancers Digestifs',
+      title: language === 'fr' ? 'RCP Cancers Digestifs' : 'Digestive Cancers RCP',
       date: '2025-11-13',
       time: '14:30',
       duration: '1h30',
       prerequisites:
         userRole === 'radiologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-              { id: 'p2', title: 'Analyser imageries', status: 'pending' as const },
-              { id: 'p3', title: 'Préparer annotations', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
+              { id: 'p2', titleKey: 'analyzeImaging', status: 'pending' as const },
+              { id: 'p3', titleKey: 'prepareAnnotations', status: 'pending' as const },
             ]
           : userRole === 'oncologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-              { id: 'p2', title: 'Analyser bilans biologiques', status: 'pending' as const },
-              { id: 'p3', title: 'Préparer protocoles traitement', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
+              { id: 'p2', titleKey: 'analyzeBiologicalTests', status: 'pending' as const },
+              { id: 'p3', titleKey: 'prepareTreatmentProtocols', status: 'pending' as const },
             ]
           : [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-              { id: 'p2', title: 'Évaluer faisabilité chirurgicale', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
+              { id: 'p2', titleKey: 'evaluateSurgicalFeasibility', status: 'pending' as const },
             ],
     },
     {
       id: '3',
-      title: 'RCP Cancers ORL',
+      title: language === 'fr' ? 'RCP Cancers ORL' : 'ENT Cancers RCP',
       date: '2025-11-15',
       time: '09:00',
       duration: '1h30',
       prerequisites:
         userRole === 'radiologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-              { id: 'p2', title: 'Analyser imageries', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
+              { id: 'p2', titleKey: 'analyzeImaging', status: 'pending' as const },
             ]
           : userRole === 'oncologue'
           ? [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-              { id: 'p2', title: 'Préparer protocoles traitement', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
+              { id: 'p2', titleKey: 'prepareTreatmentProtocols', status: 'pending' as const },
             ]
           : [
-              { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
+              { id: 'p1', titleKey: 'consultPatientFiles', status: 'pending' as const },
             ],
     },
   ];
@@ -118,7 +134,6 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
   };
 
   const togglePrerequisite = (meetingId: string, prerequisiteId: string) => {
-    // Dans un vrai système, cela mettrait à jour l'état via une API
     console.log(`Toggle prerequisite ${prerequisiteId} for meeting ${meetingId}`);
   };
 
@@ -148,12 +163,12 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-gray-900 mb-1">Mes Pré-requis</h1>
-          <p className="text-gray-600">Gérez vos préparatifs pour les réunions RCP</p>
+          <h1 className="text-gray-900 mb-1">{t.myPrerequisites.title}</h1>
+          <p className="text-gray-600">{t.myPrerequisites.subtitle}</p>
         </div>
         <Button onClick={() => onNavigate('reunions')} className="bg-blue-600 hover:bg-blue-700">
           <Video className="w-4 h-4 mr-2" />
-          Voir les réunions
+          {t.myPrerequisites.viewMeetings}
         </Button>
       </div>
 
@@ -162,9 +177,9 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-gray-900 mb-1">Progression globale</h3>
+              <h3 className="text-gray-900 mb-1">{t.myPrerequisites.globalProgress}</h3>
               <p className="text-sm text-gray-600">
-                {totalStats.totalCompleted} / {totalStats.totalPrerequisites} pré-requis complétés
+                {totalStats.totalCompleted} / {totalStats.totalPrerequisites} {t.myPrerequisites.prerequisitesCompleted}
               </p>
             </div>
             <div className="text-right">
@@ -177,13 +192,13 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
 
       {/* Meetings List */}
       <div className="space-y-4">
-        <h2 className="text-gray-900">Réunions à venir ({meetings.length})</h2>
-        
+        <h2 className="text-gray-900">{t.myPrerequisites.upcomingMeetings} ({meetings.length})</h2>
+
         {meetings.map((meeting) => {
           const isExpanded = expandedMeetings.has(meeting.id);
           const stats = getCompletionStats(meeting.prerequisites);
           const isComplete = stats.completed === stats.total;
-          
+
           return (
             <Card key={meeting.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
@@ -196,11 +211,11 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                       <CardTitle>{meeting.title}</CardTitle>
                       {isComplete ? (
                         <Badge className="bg-green-100 text-green-700 border-green-200">
-                          ✓ Prêt
+                          ✓ {t.common.ready}
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                          {stats.completed}/{stats.total} complétés
+                          {stats.completed}/{stats.total} {t.common.completed}
                         </Badge>
                       )}
                     </div>
@@ -209,7 +224,7 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
                           <span>
-                            {new Date(meeting.date).toLocaleDateString('fr-FR', {
+                            {new Date(meeting.date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', {
                               weekday: 'long',
                               day: 'numeric',
                               month: 'long',
@@ -237,7 +252,7 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                   </Button>
                 </div>
               </CardHeader>
-              
+
               {isExpanded && (
                 <CardContent>
                   <div className="space-y-2 pt-2 border-t border-gray-200">
@@ -266,14 +281,14 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                                 isChecked ? 'text-green-900' : 'text-gray-900'
                               }`}
                             >
-                              {prerequisite.title}
+                              {getPrerequisiteTitle(prerequisite.titleKey)}
                             </span>
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                  
+
                   <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
                     <Button
                       variant="outline"
@@ -283,7 +298,7 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                         onNavigate('reunions');
                       }}
                     >
-                      Voir détails
+                      {t.myPrerequisites.viewDetails}
                     </Button>
                     <Button
                       className={`flex-1 ${
@@ -299,7 +314,7 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
                       }}
                     >
                       <Video className="w-4 h-4 mr-2" />
-                      {isComplete ? 'Rejoindre' : 'Pré-requis incomplets'}
+                      {isComplete ? t.common.join : t.myPrerequisites.prerequisitesIncomplete}
                     </Button>
                   </div>
                 </CardContent>
@@ -313,8 +328,7 @@ export function MyPrerequisites({ userRole, onNavigate }: MyPrerequisitesProps) 
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <p className="text-sm text-blue-900">
-            💡 <strong>Conseil :</strong> Complétez vos pré-requis au moins 24 heures avant la
-            réunion pour garantir une discussion optimale.
+            💡 <strong>{t.myPrerequisites.tip}:</strong> {t.myPrerequisites.tipText}
           </p>
         </CardContent>
       </Card>

@@ -3,28 +3,28 @@ import { Role } from '../roles/role.entity';
 
 @Entity('doctors')
 export class Doctor {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('uuid', { name: 'doctorid' })
   doctorID: string;
 
-  @Column({ unique: true })
+  @Column({ name: 'email', unique: true })
   email: string;
 
-  @Column()
+  @Column({ name: 'firstname' })
   firstName: string;
 
-  @Column()
+  @Column({ name: 'lastname' })
   lastName: string;
 
   @ManyToOne(() => Role)
-  @JoinColumn({ name: 'roleID' })
+  @JoinColumn({ name: 'roleid', referencedColumnName: 'roleID' })
   role: Role;
 
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   is_active: boolean;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ name: 'created_at', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
-  @Column({ default: 'L@kshwini29' })
+  @Column({ name: 'password', default: 'L@kshwini29' })
   password: string;
 }

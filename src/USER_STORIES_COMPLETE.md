@@ -1,4 +1,4 @@
-# OncoLlab - User Stories Complètes et Détaillées
+# OncoCollab - User Stories Complètes et Détaillées
 
 Version: 2.0 - Mise à jour Juin 2024
 
@@ -197,7 +197,7 @@ Version: 2.0 - Mise à jour Juin 2024
 
 #### Critères d'acceptation :
 - La synchronisation se fait en temps réel (<5 min de délai)
-- Les modifications dans les calendriers externes sont reflétées dans OncoLlab
+- Les modifications dans les calendriers externes sont reflétées dans OncoCollab
 - L'utilisateur peut désactiver la synchronisation pour certains calendriers
 
 ---

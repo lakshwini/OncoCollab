@@ -1,9 +1,9 @@
-# 📁 Structure du Projet OncoLlab
+# 📁 Structure du Projet OncoCollab
 
 ## 🌳 Arborescence
 
 ```
-oncollab/
+oncocollab/
 ├── 📄 App.tsx                          # Point d'entrée principal
 ├── 📄 README.md                        # Documentation principale
 ├── 📄 FONCTIONNALITES.md              # Liste détaillée des fonctionnalités
@@ -319,7 +319,7 @@ interface DashboardAdvancedProps {
 **Structure** :
 ```
 ┌─────────────────────┐
-│  🔷 OncoLlab        │  ← Logo + Nom
+│  🔷 OncoCollab        │  ← Logo + Nom
 │  Plateforme RCP     │
 ├─────────────────────┤
 │                     │
@@ -699,4 +699,4 @@ export function MyComponent({ prop }: MyComponentProps) {
 
 ---
 
-**OncoLlab** - Architecture modulaire et évolutive 🏗️
+**OncoCollab** - Architecture modulaire et évolutive 🏗️

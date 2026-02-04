@@ -5,55 +5,54 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { useLanguage } from '../i18n';
 
 interface CalendarAdvancedProps {
   onNavigate: (page: Page) => void;
 }
 
 export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
+  const { language, t } = useLanguage();
   const [currentDate, setCurrentDate] = useState(new Date(2024, 9, 1)); // October 2024
-  const [view, setView] = useState<'Mois' | 'Semaine' | 'Jour'>('Mois');
+  const [view, setView] = useState<'month' | 'week' | 'day'>('month');
 
   const aiSuggestions = [
-    { id: '1', date: 'Mercredi 16 Oct. à 10:00', participants: 9, available: 10, description: '9/10 participants disponibles' },
-    { id: '2', date: 'Jeudi 17 Oct. à 14:30', participants: 8, available: 10, description: '8/10 participants disponibles' },
-    { id: '3', date: 'Vendredi 18 Oct. à 09:00', participants: 10, available: 10, description: '9/10 participants disponibles' },
+    { id: '1', date: language === 'fr' ? 'Mercredi 16 Oct. à 10:00' : 'Wednesday Oct 16 at 10:00', participants: 9, available: 10 },
+    { id: '2', date: language === 'fr' ? 'Jeudi 17 Oct. à 14:30' : 'Thursday Oct 17 at 2:30 PM', participants: 8, available: 10 },
+    { id: '3', date: language === 'fr' ? 'Vendredi 18 Oct. à 09:00' : 'Friday Oct 18 at 9:00 AM', participants: 10, available: 10 },
   ];
 
   const participants = [
-    { id: '1', name: 'Dr. Lefevre', role: 'Oncologue', status: 'Confirmé', avatar: 'DL' },
-    { id: '2', name: 'Dr. Martin', role: 'Radiologue', status: 'En attente', avatar: 'DM' },
-    { id: '3', name: 'Dr. Bernard', role: 'Pathologiste', status: 'Refusé', avatar: 'DB' },
+    { id: '1', name: 'Dr. Lefevre', role: language === 'fr' ? 'Oncologue' : 'Oncologist', statusKey: 'confirmed', avatar: 'DL' },
+    { id: '2', name: 'Dr. Martin', role: language === 'fr' ? 'Radiologue' : 'Radiologist', statusKey: 'pending', avatar: 'DM' },
+    { id: '3', name: 'Dr. Bernard', role: language === 'fr' ? 'Pathologiste' : 'Pathologist', statusKey: 'refused', avatar: 'DB' },
   ];
 
   const events = [
-    { 
+    {
       id: '1',
-      date: 3, 
-      title: 'RCP - Patient T.D.', 
-      time: '09:00', 
-      status: 'Confirmé',
+      date: 3,
+      title: 'RCP - Patient T.D.',
+      time: '09:00',
+      statusKey: 'confirmed',
       color: 'bg-green-500',
-      textColor: 'text-green-700'
     },
-    { 
+    {
       id: '2',
-      date: 9, 
-      title: 'RCP - Patient P.M.', 
-      time: '14:00', 
-      status: 'Annulé',
+      date: 9,
+      title: 'RCP - Patient P.M.',
+      time: '14:00',
+      statusKey: 'cancelled',
       color: 'bg-red-500',
-      textColor: 'text-red-700'
     },
-    { 
+    {
       id: '3',
-      date: 11, 
-      title: 'RCP - Patient J.L.', 
-      time: '10:00', 
-      status: 'En attente',
+      date: 11,
+      title: 'RCP - Patient J.L.',
+      time: '10:00',
+      statusKey: 'pending',
       color: 'bg-yellow-600',
-      textColor: 'text-yellow-700'
     },
   ];
 
@@ -78,17 +77,19 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
-  const monthName = currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const monthName = currentDate.toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { month: 'long', year: 'numeric' });
+
+  const weekDays = language === 'fr'
+    ? [t.calendar.days.sun, t.calendar.days.mon, t.calendar.days.tue, t.calendar.days.wed, t.calendar.days.thu, t.calendar.days.fri, t.calendar.days.sat]
+    : [t.calendar.days.sun, t.calendar.days.mon, t.calendar.days.tue, t.calendar.days.wed, t.calendar.days.thu, t.calendar.days.fri, t.calendar.days.sat];
 
   const days = [];
-  // Add empty cells for days before the month starts
   for (let i = 0; i < (startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1); i++) {
     days.push(
       <div key={`empty-${i}`} className="aspect-square p-2 bg-[#1a1f2e]/30"></div>
     );
   }
 
-  // Add cells for each day of the month
   for (let day = 1; day <= daysInMonth; day++) {
     const dayEvents = events.filter(e => e.date === day);
 
@@ -117,26 +118,35 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
     );
   }
 
+  const getStatusLabel = (statusKey: string) => {
+    const statusMap: Record<string, string> = {
+      confirmed: t.statuses.confirmed,
+      pending: t.statuses.pending,
+      refused: t.statuses.refused,
+    };
+    return statusMap[statusKey] || statusKey;
+  };
+
   return (
     <div className="min-h-screen bg-[#0f1419] p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-white mb-1">Calendrier des RCP</h1>
-          <p className="text-gray-400">Planifiez et gérez les réunions de concertation pluridisciplinaire.</p>
+          <h1 className="text-white mb-1">{t.calendar.title}</h1>
+          <p className="text-gray-400">{t.calendar.subtitle}</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700">
             <CalendarIcon className="w-4 h-4 mr-2" />
-            Synchroniser avec Google
+            {t.calendar.syncGoogle}
           </Button>
           <Button variant="outline" className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700">
             <CalendarIcon className="w-4 h-4 mr-2" />
-            Synchroniser avec Outlook
+            {t.calendar.syncOutlook}
           </Button>
           <Button className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-2" />
-            Nouvelle RCP
+            {t.calendar.newRCP}
           </Button>
         </div>
       </div>
@@ -148,18 +158,18 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={previousMonth}
                     className="text-white hover:bg-gray-800"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </Button>
                   <h2 className="text-white min-w-[200px] text-center capitalize">{monthName}</h2>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={nextMonth}
                     className="text-white hover:bg-gray-800"
                   >
@@ -169,9 +179,9 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
 
                 <Tabs value={view} onValueChange={(v) => setView(v as any)} className="w-auto">
                   <TabsList className="bg-gray-800">
-                    <TabsTrigger value="Mois">Mois</TabsTrigger>
-                    <TabsTrigger value="Semaine">Semaine</TabsTrigger>
-                    <TabsTrigger value="Jour">Jour</TabsTrigger>
+                    <TabsTrigger value="month">{t.calendar.month}</TabsTrigger>
+                    <TabsTrigger value="week">{t.calendar.week}</TabsTrigger>
+                    <TabsTrigger value="day">{t.calendar.day}</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -180,7 +190,7 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
             <CardContent>
               {/* Weekday Headers */}
               <div className="grid grid-cols-7 gap-0 mb-2">
-                {['DIM', 'LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM'].map((day) => (
+                {weekDays.map((day) => (
                   <div key={day} className="text-center text-sm text-gray-500 py-2">
                     {day}
                   </div>
@@ -195,33 +205,33 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
           </Card>
         </div>
 
-        {/* Sidebar - AI Suggestions & Participants */}
+        {/* Sidebar */}
         <div className="space-y-6">
           {/* AI Planning Assistance */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Planification Assistée par IA</CardTitle>
+              <CardTitle className="text-white">{t.calendar.aiPlanning}</CardTitle>
               <CardDescription className="text-gray-400">
-                Suggestions de créneaux
+                {t.calendar.slotSuggestions}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-gray-400">
-                Voici les meilleurs moments pour réunir tout le monde :
+                {t.calendar.bestMomentsIntro}
               </p>
               {aiSuggestions.map((suggestion) => (
-                <div 
+                <div
                   key={suggestion.id}
                   className="p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <p className="text-white text-sm">{suggestion.date}</p>
-                      <p className="text-xs text-gray-400 mt-1">{suggestion.description}</p>
+                      <p className="text-xs text-gray-400 mt-1">{suggestion.participants}/{suggestion.available} {t.calendar.participantsAvailable}</p>
                     </div>
                   </div>
                   <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 mt-2">
-                    Planifier
+                    {t.common.plan}
                   </Button>
                 </div>
               ))}
@@ -231,7 +241,7 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
           {/* Participants Status */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Participants</CardTitle>
+              <CardTitle className="text-white">{t.calendar.participants}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {participants.map((participant) => (
@@ -248,29 +258,29 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
                     </div>
                   </div>
                   <div>
-                    {participant.status === 'Confirmé' && (
+                    {participant.statusKey === 'confirmed' && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
                         <CheckCircle2 className="w-3 h-3 mr-1" />
-                        Confirmé
+                        {getStatusLabel(participant.statusKey)}
                       </Badge>
                     )}
-                    {participant.status === 'En attente' && (
+                    {participant.statusKey === 'pending' && (
                       <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">
                         <AlertCircle className="w-3 h-3 mr-1" />
-                        En attente
+                        {getStatusLabel(participant.statusKey)}
                       </Badge>
                     )}
-                    {participant.status === 'Refusé' && (
+                    {participant.statusKey === 'refused' && (
                       <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">
                         <XCircle className="w-3 h-3 mr-1" />
-                        Refusé
+                        {getStatusLabel(participant.statusKey)}
                       </Badge>
                     )}
                   </div>
                 </div>
               ))}
               <Button variant="link" className="w-full text-blue-400 hover:text-blue-300 text-sm">
-                Voir tous les participants
+                {t.calendar.viewAllParticipants}
               </Button>
             </CardContent>
           </Card>
@@ -278,16 +288,16 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
           {/* Invitations */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
-              <CardTitle className="text-white">Invitations</CardTitle>
+              <CardTitle className="text-white">{t.calendar.invitations}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="p-3 bg-blue-900/20 border border-blue-800 rounded-lg">
                 <div className="flex items-start gap-3">
                   <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-white text-sm">Rappel envoyé</p>
+                    <p className="text-white text-sm">{t.calendar.reminderSent}</p>
                     <p className="text-xs text-gray-400 mt-1">
-                      24h avant - RCP Patient J.L.
+                      24h {t.calendar.beforeRCP}
                     </p>
                   </div>
                 </div>

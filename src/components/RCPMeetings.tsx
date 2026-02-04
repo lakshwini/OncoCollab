@@ -4,17 +4,25 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { MeetingPreparationStatus } from './MeetingPreparationStatus';
+import { useLanguage } from '../i18n';
 
 interface RCPMeetingsProps {
   onNavigate: (page: Page) => void;
-  onNavigateToPrerequisites: (meetingInfo: { title: string; date: string; time: string }) => void;
+  onNavigateToPrerequisites: (meetingInfo: { title: string; date: string; time: string; roomId?: string; patientName?: string }) => void;
+  onNavigateToVideo?: (meetingInfo: { title: string; roomId: string; patientName?: string }) => void;
+  currentUser?: User;
 }
 
-export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetingsProps) {
+export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateToVideo, currentUser }: RCPMeetingsProps) {
+  const { language, t } = useLanguage();
+
+  // Toutes les réunions
   const upcomingMeetings = [
     {
       id: '1',
-      title: 'RCP Oncologie Thoracique',
+      title: 'RCP Thoracique',
+      roomId: 'rcp-thoracique-2025-11-11',
+      patientName: 'Mme. Lambert',
       date: '2025-11-11',
       time: '10:00',
       duration: '2h',
@@ -23,6 +31,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
         { name: 'Dr. Martin', role: 'Radiologue' },
         { name: 'Dr. Dubois', role: 'Oncologue' },
         { name: 'Dr. Laurent', role: 'Chirurgien' },
+        { name: 'Infirmière Dupont', role: 'Infirmier' },
       ],
       participantsPreparation: [
         {
@@ -64,6 +73,8 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
     {
       id: '2',
       title: 'RCP Cancers Digestifs',
+      roomId: 'rcp-cancers-digestifs-2025-11-13',
+      patientName: 'M. Martin',
       date: '2025-11-13',
       time: '14:30',
       duration: '1h30',
@@ -72,6 +83,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
         { name: 'Dr. Chen', role: 'Gastro-entérologue' },
         { name: 'Dr. Dubois', role: 'Oncologue' },
         { name: 'Dr. Petit', role: 'Chirurgien' },
+        { name: 'Infirmière Dupont', role: 'Infirmier' },
       ],
       participantsPreparation: [
         {
@@ -114,7 +126,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
   const pastMeetings = [
     {
       id: '3',
-      title: 'RCP Oncologie Thoracique',
+      title: 'RCP Thoracique',
       date: '2025-11-04',
       time: '10:00',
       participants: 4,
@@ -137,27 +149,27 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-gray-900 mb-1">Réunions RCP</h1>
-          <p className="text-gray-600">Planification et gestion des réunions de concertation</p>
+          <h1 className="text-gray-900 mb-1">{t.meetings.title}</h1>
+          <p className="text-gray-600">{t.meetings.subtitle}</p>
         </div>
         <div className="flex gap-2">
-          <Button 
+          <Button
             variant="outline"
             onClick={() => onNavigate('calendrier')}
           >
             <Calendar className="w-4 h-4 mr-2" />
-            Voir le calendrier
+            {t.meetings.viewCalendar}
           </Button>
           <Button className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-2" />
-            Planifier une RCP
+            {t.meetings.planRCP}
           </Button>
         </div>
       </div>
 
       {/* Upcoming Meetings */}
       <div>
-        <h2 className="text-gray-900 mb-4">Réunions à venir</h2>
+        <h2 className="text-gray-900 mb-4">{t.meetings.upcomingMeetings}</h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {upcomingMeetings.map((meeting) => (
             <Card key={meeting.id} className="hover:shadow-lg transition-shadow">
@@ -169,7 +181,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4" />
                         <span>
-                          {new Date(meeting.date).toLocaleDateString('fr-FR', {
+                          {new Date(meeting.date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', {
                             weekday: 'long',
                             day: 'numeric',
                             month: 'long',
@@ -187,7 +199,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
                     </div>
                   </div>
                   <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                    {meeting.patientCount} patient(s)
+                    {meeting.patientCount} {t.common.patients}
                   </Badge>
                 </div>
               </CardHeader>
@@ -195,14 +207,14 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
                 <div className="space-y-4">
                   {/* Preparation Status */}
                   <div className="pb-4 border-b border-gray-200">
-                    <MeetingPreparationStatus 
+                    <MeetingPreparationStatus
                       participants={meeting.participantsPreparation}
                       compact={true}
                     />
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-600 mb-2">Participants ({meeting.participants.length})</p>
+                    <p className="text-sm text-gray-600 mb-2">{t.calendar.participants} ({meeting.participants.length})</p>
                     <div className="space-y-2">
                       {meeting.participants.map((participant, index) => (
                         <div key={index} className="flex items-center gap-2 text-sm">
@@ -221,23 +233,35 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
                   </div>
 
                   <div className="flex gap-2 pt-4 border-t border-gray-200">
-                    <Button 
+                    <Button
                       className="flex-1 bg-blue-600 hover:bg-blue-700"
-                      onClick={() => onNavigate('video')}
+                      onClick={() => {
+                        if (onNavigateToVideo) {
+                          onNavigateToVideo({
+                            title: meeting.title,
+                            roomId: meeting.roomId,
+                            patientName: meeting.patientName,
+                          });
+                        } else {
+                          onNavigate('video');
+                        }
+                      }}
                     >
                       <Video className="w-4 h-4 mr-2" />
-                      Rejoindre
+                      {t.common.join}
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="flex-1"
                       onClick={() => onNavigateToPrerequisites({
                         title: meeting.title,
                         date: meeting.date,
                         time: meeting.time,
+                        roomId: meeting.roomId,
+                        patientName: meeting.patientName,
                       })}
                     >
-                      Détails
+                      {t.common.details}
                     </Button>
                   </div>
                 </div>
@@ -249,7 +273,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
 
       {/* Past Meetings */}
       <div>
-        <h2 className="text-gray-900 mb-4">Réunions passées</h2>
+        <h2 className="text-gray-900 mb-4">{t.meetings.pastMeetings}</h2>
         <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-200">
           {pastMeetings.map((meeting) => (
             <div key={meeting.id} className="p-4 hover:bg-gray-50 transition-colors">
@@ -260,24 +284,24 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
                     <div className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       <span>
-                        {new Date(meeting.date).toLocaleDateString('fr-FR')} à {meeting.time}
+                        {new Date(meeting.date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')} {language === 'fr' ? 'à' : 'at'} {meeting.time}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Users className="w-4 h-4" />
-                      <span>{meeting.participants} participants</span>
+                      <span>{meeting.participants} {t.common.participants}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Badge variant="secondary">{meeting.patientCount} patient(s)</Badge>
+                      <Badge variant="secondary">{meeting.patientCount} {t.common.patients}</Badge>
                     </div>
                   </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm">
-                    Compte-rendu
+                    {t.meetings.report}
                   </Button>
                   <Button variant="ghost" size="sm">
-                    Détails
+                    {t.common.details}
                   </Button>
                 </div>
               </div>
@@ -292,8 +316,8 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Ce mois-ci</p>
-                <p className="text-gray-900">12 réunions</p>
+                <p className="text-sm text-gray-600 mb-1">{t.meetings.thisMonth}</p>
+                <p className="text-gray-900">12 {t.meetings.meetingsCount}</p>
               </div>
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                 <Calendar className="w-6 h-6 text-blue-600" />
@@ -305,8 +329,8 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Patients discutés</p>
-                <p className="text-gray-900">48 dossiers</p>
+                <p className="text-sm text-gray-600 mb-1">{t.meetings.patientsDiscussed}</p>
+                <p className="text-gray-900">48 {t.meetings.dossiersCount}</p>
               </div>
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <Users className="w-6 h-6 text-green-600" />
@@ -318,7 +342,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites }: RCPMeetin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Durée moyenne</p>
+                <p className="text-sm text-gray-600 mb-1">{t.meetings.averageDuration}</p>
                 <p className="text-gray-900">1h 45min</p>
               </div>
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">

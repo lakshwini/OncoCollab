@@ -2,9 +2,9 @@ import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('roles')
 export class Role {
-  @PrimaryGeneratedColumn()
+  @PrimaryGeneratedColumn({ name: 'roleid' })
   roleID: number;
 
-  @Column({ unique: true })
+  @Column({ name: 'rolename', unique: true })
   roleName: string;
 }
