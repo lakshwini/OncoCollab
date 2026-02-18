@@ -12,6 +12,8 @@ import { DoctorsModule } from './doctors/doctors.module';
 import { PatientsModule } from './patients/patients.module';
 import { RolesModule } from './roles/roles.module';
 import { VideoModule } from './video/video.module';
+import { PrerequisitesModule } from './prerequisites/prerequisites.module';
+import { MeetingsModule } from './meetings/meetings.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { VideoModule } from './video/video.module';
     PatientsModule,
     RolesModule,
     VideoModule,
+    PrerequisitesModule,
+    MeetingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

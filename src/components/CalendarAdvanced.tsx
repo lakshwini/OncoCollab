@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Page } from '../App';
+import { Page, User } from '../App';
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -7,15 +7,24 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { useLanguage } from '../i18n';
+import { ScheduleRCPModal } from './ScheduleRCPModal';
 
 interface CalendarAdvancedProps {
   onNavigate: (page: Page) => void;
+  currentUser?: User;
+  authToken?: string | null;
 }
 
-export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
+export function CalendarAdvanced({ onNavigate, currentUser, authToken }: CalendarAdvancedProps) {
   const { language, t } = useLanguage();
   const [currentDate, setCurrentDate] = useState(new Date(2024, 9, 1)); // October 2024
   const [view, setView] = useState<'month' | 'week' | 'day'>('month');
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+
+  const handleMeetingCreated = () => {
+    setIsScheduleModalOpen(false);
+    // TODO: Refresh calendar events
+  };
 
   const aiSuggestions = [
     { id: '1', date: language === 'fr' ? 'Mercredi 16 Oct. à 10:00' : 'Wednesday Oct 16 at 10:00', participants: 9, available: 10 },
@@ -144,7 +153,7 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
             <CalendarIcon className="w-4 h-4 mr-2" />
             {t.calendar.syncOutlook}
           </Button>
-          <Button className="bg-blue-600 hover:bg-blue-700">
+          <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setIsScheduleModalOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             {t.calendar.newRCP}
           </Button>
@@ -306,6 +315,15 @@ export function CalendarAdvanced({ onNavigate }: CalendarAdvancedProps) {
           </Card>
         </div>
       </div>
+
+      {/* Schedule RCP Modal */}
+      <ScheduleRCPModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        currentUserId={currentUser?.id || ''}
+        authToken={authToken || null}
+        onSuccess={handleMeetingCreated}
+      />
     </div>
   );
 }

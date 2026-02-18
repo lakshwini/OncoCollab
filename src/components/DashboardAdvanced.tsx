@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Page } from '../App';
 import {
   Calendar,
@@ -7,7 +8,9 @@ import {
   Users,
   Plus,
   ArrowRight,
-  Activity
+  Activity,
+  AlertCircle,
+  Loader
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -15,6 +18,7 @@ import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Progress } from './ui/progress';
 import { useLanguage } from '../i18n';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface DashboardAdvancedProps {
   onNavigate: (page: Page, dossierId?: string) => void;
@@ -22,80 +26,84 @@ interface DashboardAdvancedProps {
 
 export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
   const { language, t } = useLanguage();
+  
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [dossiers, setDossiers] = useState<any[]>([]);
+  const [stats, setStats] = useState({ activeDossiers: 0, statusStats: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const upcomingMeetings = [
-    {
-      id: '1',
-      title: 'RCP - Patient T.D.',
-      date: '2024-10-03',
-      time: '09:00',
-      statusKey: 'confirmed',
-      participants: 4,
-      cancerType: 'Thoracique'
-    },
-    {
-      id: '2',
-      title: 'RCP - Patient P.M.',
-      date: '2024-10-09',
-      time: '14:00',
-      statusKey: 'pending',
-      participants: 3,
-      cancerType: 'Digestif'
-    },
-  ];
+  // Load data from backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-  const recentDossiers = [
-    {
-      id: 'D001',
-      patientName: 'Jean Dupont',
-      patientInitials: 'JD',
-      type: language === 'fr' ? 'Cancer du poumon' : 'Lung cancer',
-      statusKey: 'pending',
-      lastModified: '15/07/2024',
-      urgency: 'high'
-    },
-    {
-      id: 'D002',
-      patientName: 'Marie Curie',
-      patientInitials: 'MC',
-      type: language === 'fr' ? 'Cancer colorectal' : 'Colorectal cancer',
-      statusKey: 'validated',
-      lastModified: '14/07/2024',
-      urgency: 'low'
-    },
-    {
-      id: 'D003',
-      patientName: 'Paul Lemoine',
-      patientInitials: 'PL',
-      type: language === 'fr' ? 'Lymphome' : 'Lymphoma',
-      statusKey: 'inProgress',
-      lastModified: '12/07/2024',
-      urgency: 'medium'
-    },
-  ];
+        const token = localStorage.getItem('onco_collab_token');
+        if (!token) {
+          setError('Non authentifié');
+          return;
+        }
 
-  const stats = [
+        const headers = createAuthHeaders(token);
+
+        // Fetch meetings
+        const meetingsRes = await fetch(createApiUrl('/meetings'), { headers });
+        if (meetingsRes.ok) {
+          const meetingsData = await meetingsRes.json();
+          setMeetings(meetingsData.slice(0, 3)); // Show up to 3
+        }
+
+        // Fetch dossiers
+        const dossiersRes = await fetch(createApiUrl('/patients/dossiers/list'), { headers });
+        if (dossiersRes.ok) {
+          const dossiersData = await dossiersRes.json();
+          const uniqueDossiers = Array.from(
+            new Map(dossiersData.map((d: any) => [d.patientId, d])).values()
+          ).slice(0, 3); // Show up to 3
+          setDossiers(uniqueDossiers);
+        }
+
+        // Fetch stats
+        const statsRes = await fetch(createApiUrl('/patients/stats/dashboard'), { headers });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setStats(statsData);
+        }
+      } catch (err) {
+        console.error('Error loading dashboard:', err);
+        setError('Erreur lors du chargement des données');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const statCards = [
     {
       labelKey: 'activeDossiers',
-      value: '24',
+      value: stats.activeDossiers,
       changeKey: 'thisMonth',
-      changePrefix: '+3 ',
+      changePrefix: '0 ',
       icon: FolderOpen,
       color: 'text-blue-400',
       bg: 'bg-blue-600/20'
     },
     {
       labelKey: 'plannedRCP',
-      value: '12',
+      value: meetings.length,
       changeKey: 'thisWeek',
-      changePrefix: '+2 ',
+      changePrefix: '0 ',
       icon: Video,
       color: 'text-green-400',
       bg: 'bg-green-600/20'
     },
     {
       labelKey: 'awaitingValidation',
-      value: '8',
+      value: stats.statusStats.find((s: any) => s.status === 'draft')?.count || 0,
       changeKey: 'urgent',
       changePrefix: '',
       icon: Clock,
@@ -104,7 +112,7 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
     },
     {
       labelKey: 'medicalTeam',
-      value: '18',
+      value: meetings.length > 0 ? meetings.length * 3 : 0,
       changeKey: 'specialists',
       changePrefix: '',
       icon: Users,
@@ -136,6 +144,10 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       pending: t.dashboard.pending,
       inProgress: t.dashboard.inProgress,
       validated: t.dashboard.validated,
+      scheduled: t.dashboard.confirmed,
+      draft: t.dashboard.pending,
+      live: t.dashboard.inProgress,
+      finished: t.dashboard.validated,
     };
     return statusMap[statusKey] || statusKey;
   };
@@ -143,10 +155,14 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
   const getStatusColor = (statusKey: string) => {
     switch (statusKey) {
       case 'validated':
+      case 'finished':
         return 'bg-green-500/20 text-green-400 border-green-500/30';
       case 'inProgress':
+      case 'live':
+      case 'scheduled':
         return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
       case 'pending':
+      case 'draft':
         return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
       case 'confirmed':
         return 'bg-green-500/20 text-green-400 border-green-500/30';
@@ -158,6 +174,21 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
   const getDashboardText = (key: string) => {
     return (t.dashboard as Record<string, string>)[key] || key;
   };
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0f1419] p-6 flex items-center justify-center">
+        <div className="text-center">
+          <Loader className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-3" />
+          <p className="text-gray-400">Chargement du tableau de bord...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0f1419] p-6 space-y-6">
@@ -186,9 +217,19 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
         </div>
       </div>
 
+      {/* Error Alert */}
+      {error && (
+        <Card className="bg-red-500/20 border-red-500/30">
+          <CardContent className="p-6 flex items-center gap-4">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-red-300">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
+        {statCards.map((stat, index) => (
           <Card key={index} className="bg-[#1a1f2e] border-gray-800">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -250,7 +291,7 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             </CardContent>
           </Card>
 
-          {/* Recent Dossiers */}
+          {/* Recent Dossiers - DYNAMIC */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -271,49 +312,60 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recentDossiers.map((dossier) => (
-                <div
-                  key={dossier.id}
-                  className="p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
-                  onClick={() => onNavigate('dossier-detail', dossier.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="w-12 h-12 bg-blue-600">
-                        <AvatarFallback className="bg-blue-600 text-white">
-                          {dossier.patientInitials}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-white">{dossier.patientName}</p>
-                          <Badge className={getStatusColor(dossier.statusKey)}>
-                            {getStatusLabel(dossier.statusKey)}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-gray-400 mt-1">{dossier.type}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {t.common.modifiedOn} {dossier.lastModified}
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
-                    >
-                      {t.common.open}
-                    </Button>
-                  </div>
+              {dossiers.length === 0 ? (
+                <div className="text-center py-8">
+                  <FolderOpen className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400">Aucun dossier disponible</p>
                 </div>
-              ))}
+              ) : (
+                dossiers.map((dossier) => (
+                  <div
+                    key={dossier.patientId}
+                    className="p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
+                    onClick={() => onNavigate('dossier-detail', dossier.patientId)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <Avatar className="w-12 h-12 bg-blue-600">
+                          <AvatarFallback className="bg-blue-600 text-white">
+                            {getInitials(dossier.firstName, dossier.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-white">{dossier.firstName} {dossier.lastName}</p>
+                            {dossier.meetingStatus && (
+                              <Badge className={getStatusColor(dossier.meetingStatus)}>
+                                {getStatusLabel(dossier.meetingStatus)}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-400 mt-1">{dossier.patientNumber}</p>
+                          {dossier.lastModified && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {t.common.modifiedOn} {new Date(dossier.lastModified).toLocaleDateString('fr-FR')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                      >
+                        {t.common.open}
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Upcoming Meetings */}
+          {/* Upcoming Meetings - DYNAMIC */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
@@ -322,32 +374,39 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {upcomingMeetings.map((meeting) => (
-                <div
-                  key={meeting.id}
-                  className="p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
-                  onClick={() => onNavigate('reunions')}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="text-white text-sm">{meeting.title}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {new Date(meeting.date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')} • {meeting.time}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className={getStatusColor(meeting.statusKey)}
-                    >
-                      {getStatusLabel(meeting.statusKey)}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <Users className="w-3 h-3" />
-                    {meeting.participants} {t.common.participants}
-                  </div>
+              {meetings.length === 0 ? (
+                <div className="text-center py-8">
+                  <Calendar className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 text-sm">Aucune réunion programmée</p>
                 </div>
-              ))}
+              ) : (
+                <>
+                  {meetings.map((meeting) => (
+                    <div
+                      key={meeting.id}
+                      className="p-3 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer"
+                      onClick={() => onNavigate('reunions')}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="text-white text-sm">{meeting.title}</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {meeting.startTime ? new Date(meeting.startTime).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US') : 'Date non définie'}
+                          </p>
+                        </div>
+                        {meeting.status && (
+                          <Badge
+                            variant="secondary"
+                            className={getStatusColor(meeting.status)}
+                          >
+                            {getStatusLabel(meeting.status)}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
               <Button
                 variant="outline"
                 className="w-full bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
@@ -368,23 +427,23 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
                   <span className="text-gray-400">{t.dashboard.processedDossiers}</span>
-                  <span className="text-white">18/24</span>
+                  <span className="text-white">{stats.activeDossiers}/24</span>
                 </div>
-                <Progress value={75} className="h-2" />
+                <Progress value={(stats.activeDossiers / 24) * 100} className="h-2" />
               </div>
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
                   <span className="text-gray-400">{t.dashboard.completedRCP}</span>
-                  <span className="text-white">8/12</span>
+                  <span className="text-white">{meetings.length}/12</span>
                 </div>
-                <Progress value={67} className="h-2" />
+                <Progress value={(meetings.length / 12) * 100} className="h-2" />
               </div>
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
                   <span className="text-gray-400">{t.dashboard.validatedReports}</span>
-                  <span className="text-white">15/18</span>
+                  <span className="text-white">0/18</span>
                 </div>
-                <Progress value={83} className="h-2" />
+                <Progress value={0} className="h-2" />
               </div>
             </CardContent>
           </Card>

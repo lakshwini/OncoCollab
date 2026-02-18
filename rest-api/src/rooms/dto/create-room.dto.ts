@@ -1,6 +1,10 @@
-import { IsString, IsNotEmpty, IsArray, IsMongoId, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, IsMongoId, IsDateString, IsOptional } from 'class-validator';
 
 export class CreateRoomDto {
+    @IsString()
+    @IsOptional()
+    roomId?: string;
+
     @IsString()
     @IsNotEmpty()
     subject: string;

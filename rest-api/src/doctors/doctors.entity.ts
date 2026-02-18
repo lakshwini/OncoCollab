@@ -27,4 +27,7 @@ export class Doctor {
 
   @Column({ name: 'password', default: 'L@kshwini29' })
   password: string;
+
+  @Column({ name: 'profile_image_url', nullable: true })
+  profileImageUrl?: string;
 }

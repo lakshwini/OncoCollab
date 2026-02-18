@@ -1,17 +1,24 @@
-import { IsString, IsNotEmpty, IsMongoId } from 'class-validator';
+import { IsString, IsNotEmpty, IsUUID, IsEnum, IsOptional } from 'class-validator';
+import type { MessageType } from '../entities/message.entity';
 
 export class CreateMessageDto {
-    @IsString()
-    @IsNotEmpty()
-    content: string;
+  @IsUUID()
+  @IsNotEmpty()
+  meetingId: string;
 
-    @IsMongoId()
-    @IsNotEmpty()
-    sender: string;
+  @IsUUID()
+  @IsNotEmpty()
+  roomId: string;
 
-    @IsString()
-    @IsNotEmpty()
-    room: string;
+  @IsUUID()
+  @IsNotEmpty()
+  senderId: string;
 
-    createdAt: Date;
+  @IsString()
+  @IsNotEmpty()
+  content: string;
+
+  @IsEnum(['text', 'system'])
+  @IsOptional()
+  messageType?: MessageType;
 }

@@ -1,18 +1,19 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { VideoGateway } from './video.gateway';
 import { VideoService } from './video.service';
 import { MessagesModule } from '../messages/messages.module';
 import { RoomsModule } from '../rooms/rooms.module';
+import { JwtConfigModule } from '../auth/jwt-config.module';
 
+/**
+ * Module de gestion de la vidéoconférence
+ * Gère les connexions WebSocket, la signalisation WebRTC et le chat
+ */
 @Module({
   imports: [
     MessagesModule,
     RoomsModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'votre-secret-jwt-tres-securise',
-      signOptions: { expiresIn: '24h' },
-    }),
+    JwtConfigModule, // ✅ Utilise le module global JWT (même secret que AuthModule)
   ],
   providers: [VideoGateway, VideoService],
   exports: [VideoService],

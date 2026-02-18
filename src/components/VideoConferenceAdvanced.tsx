@@ -1,11 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { ClientToServerEvents, ServerToClientEvents } from '../types/video';
-import { API_CONFIG } from '../config/api.config';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User } from '../App';
 import { useLanguage } from '../i18n';
-
-type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+import { useWebRTC } from '../contexts/WebRTCContext';
+import { useVideo } from '../contexts/VideoContext';
 import {
   X,
   Mic,
@@ -16,7 +13,7 @@ import {
   Share2,
   MessageSquare,
   Users,
-  Send,  
+  Send,
   FileText,
   FolderOpen,
   Image as ImageIcon,
@@ -43,7 +40,16 @@ import {
   Type,
   MousePointer,
   Pencil,
+  ClipboardList,
 } from 'lucide-react';
+import { PrerequisitesTab } from './PrerequisitesTab';
+import { PrerequisiteModulePlaceholder } from './PrerequisiteModulePlaceholder';
+import {
+  fetchMeetingPrerequisiteDetails,
+  type PrerequisiteDetailsResponse,
+  type PrerequisiteItemDetail,
+  type ParticipantDetail,
+} from '../services/prerequisites.service';
 
 interface InitialSettings {
   micEnabled?: boolean;
@@ -93,20 +99,72 @@ const C = {
   purple: '#a855f7',
 };
 
-const SERVER_URL = API_CONFIG.WEBSOCKET_URL;
-const ICE_SERVERS = API_CONFIG.ICE_SERVERS;
+// ✅ Défini HORS du composant pour éviter les remount React à chaque render
+const ControlButton = ({ onClick, active, danger, children, label }: {
+  onClick: () => void | Promise<void>;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+  label?: string;
+}) => (
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      console.log('[ControlButton] 🖱️ Button clicked');
+      onClick();
+    }}
+    title={label}
+    style={{
+      width: '44px',
+      height: '44px',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      border: 'none',
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      backgroundColor: danger ? '#ef4444' : active ? '#3b82f6' : '#333333',
+      color: '#ffffff',
+    }}
+    onMouseEnter={e => {
+      e.currentTarget.style.backgroundColor = danger ? '#dc2626' : active ? '#1d4ed8' : '#444444';
+    }}
+    onMouseLeave={e => {
+      e.currentTarget.style.backgroundColor = danger ? '#ef4444' : active ? '#3b82f6' : '#333333';
+    }}
+  >
+    {children}
+  </button>
+);
 
 export function VideoConferenceAdvanced({
   onClose,
   patientName,
-  meetingTitle = "RCP",
+  meetingTitle = 'RCP',
   authToken,
   roomId,
-  serverUrl,
   currentUser,
-  initialSettings
+  initialSettings,
 }: VideoConferenceAdvancedProps) {
   const { language } = useLanguage();
+  const {
+    joinRoom,
+    leaveRoom,
+    fullLeaveRoom,
+    connectionStatus,
+    participants,
+    mySocketId,
+  } = useWebRTC();
+  const {
+    stream: localStream,
+    isMicOn: isMicEnabled,
+    isCameraOn: isVideoEnabled,
+    setMicOn,
+    setCameraOn,
+    replaceVideoTrack,
+  } = useVideo();
+
   const currentDoctorName = currentUser?.name || 'Docteur';
   const currentDoctorRole = currentUser?.role || 'medecin';
   const currentDoctorInitials = currentUser?.name
@@ -115,37 +173,59 @@ export function VideoConferenceAdvanced({
 
   const displayPatientName = patientName || 'Patient';
   const ROOM_ID = roomId || meetingTitle.replace(/\s+/g, '-').toLowerCase();
-  const DYNAMIC_SERVER_URL = serverUrl || SERVER_URL;
 
   // Media states
-  const [micEnabled, setMicEnabled] = useState(initialSettings?.micEnabled ?? true);
-  const [videoEnabled, setVideoEnabled] = useState(initialSettings?.videoEnabled ?? true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const showLocalVideo = Boolean(localStream && (isVideoEnabled || isScreenSharing));
 
   // UI states
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [leftPanelTab, setLeftPanelTab] = useState<'patient' | 'documents' | 'imagery'>('patient');
+  const [leftPanelTab, setLeftPanelTab] = useState<'patient' | 'documents' | 'imagery' | 'prerequisites'>('patient');
   const [rightPanelTab, setRightPanelTab] = useState<'chat' | 'participants'>('chat');
   const [chatMessage, setChatMessage] = useState('');
-  const [viewMode, setViewMode] = useState<'video' | 'imagery'>('video');
+  const [viewMode, setViewMode] = useState<'video' | 'imagery' | 'prerequisites'>('video');
+
+  // ── Prérequis ──────────────────────────────────────────────────────────────
+  const [prereqData, setPrereqData] = useState<PrerequisiteDetailsResponse | null>(null);
+  const [prereqLoading, setPrereqLoading] = useState(false);
+  const [prereqError, setPrereqError] = useState<string | null>(null);
+  const [activePrereqItem, setActivePrereqItem] = useState<PrerequisiteItemDetail | null>(null);
+  const [activePrereqDoctor, setActivePrereqDoctor] = useState<ParticipantDetail | null>(null);
   const [selectedImagery, setSelectedImagery] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [annotationTool, setAnnotationTool] = useState<'cursor' | 'pen' | 'text' | 'rectangle' | 'circle'>('cursor');
   const [searchDoc, setSearchDoc] = useState('');
 
-  // WebRTC
-  const socketRef = useRef<AppSocket | null>(null);
-  const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const localVideoGridRef = useRef<HTMLVideoElement>(null);
+  const localVideoMiniRef = useRef<HTMLVideoElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  
+  // ⭐ CRITIQUE: Référence persistante au stream - jamais stale
+  const localStreamRef = useRef<MediaStream | null>(null);
+  
+  // Maintenir localStreamRef à jour avec le stream du contexte
+  useEffect(() => {
+    localStreamRef.current = localStream;
+    console.log('[VideoConf] 📌 localStreamRef updated:', localStream ? 'stream present' : 'no stream');
+  }, [localStream]);
 
-  const [myId, setMyId] = useState<string | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
-  const [connectedUsers, setConnectedUsers] = useState<string[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<string>("Connexion...");
+  // Callback refs pour garantir que srcObject est appliqué dès le montage DOM
+  const attachLocalVideoGrid = useCallback((el: HTMLVideoElement | null) => {
+    localVideoGridRef.current = el;
+    if (el && localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      console.log('[VideoConf] ✅ Stream attaché à localVideoGridRef');
+    }
+  }, []);
+
+  const attachLocalVideoMini = useCallback((el: HTMLVideoElement | null) => {
+    localVideoMiniRef.current = el;
+    if (el && localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      console.log('[VideoConf] ✅ Stream attaché à localVideoMiniRef');
+    }
+  }, []);
 
   // Chat
   const [chatMessages, setChatMessages] = useState<{ id: string; user: string; time: string; message: string }[]>([]);
@@ -159,10 +239,10 @@ export function VideoConferenceAdvanced({
   ];
 
   const imageries = [
-    { id: '1', name: 'IRM Cérébrale', type: 'IRM', date: '12/01/2026', slices: 24, status: 'Complet' },
+    { id: '1', name: 'IRM Cerebrale', type: 'IRM', date: '12/01/2026', slices: 24, status: 'Complet' },
     { id: '2', name: 'Scanner Thoracique', type: 'CT', date: '10/01/2026', slices: 48, status: 'Complet' },
     { id: '3', name: 'TEP Scan', type: 'PET', date: '05/01/2026', slices: 32, status: 'Complet' },
-    { id: '4', name: 'Échographie abdominale', type: 'US', date: '02/01/2026', slices: 12, status: 'Partiel' },
+    { id: '4', name: 'Echographie abdominale', type: 'US', date: '02/01/2026', slices: 12, status: 'Partiel' },
   ];
 
   const patientInfo = {
@@ -177,376 +257,262 @@ export function VideoConferenceAdvanced({
     nextRCP: '03/02/2026',
   };
 
-  // Stream callbacks
-  const addRemoteStream = useCallback((id: string, stream: MediaStream) => {
-    setRemoteStreams(prev => new Map(prev).set(id, stream));
-  }, []);
+  // ⚠️ CRITIQUE : NE PAS mettre joinRoom/leaveRoom dans les deps.
+  // Quand joinRoom() appelle setCurrentRoomId(), leaveRoom est recréé (nouvelle ref).
+  // Si leaveRoom est dans les deps, React appelle l'ancien cleanup → stopAllMedia()
+  // → caméra et micro forcés à OFF → l'état du pré-meeting est perdu.
+  const joinRoomRef = useRef(joinRoom);
+  const leaveRoomRef = useRef(leaveRoom);
+  joinRoomRef.current = joinRoom;
+  leaveRoomRef.current = leaveRoom;
 
-  const removeRemoteStream = useCallback((id: string) => {
-    setRemoteStreams(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(id);
-      return newMap;
-    });
-  }, []);
-
-  const toggleMic = useCallback(() => {
-    const newMicState = !micEnabled;
-    console.log('[VideoConf] 🎤 Toggle micro:', micEnabled, '→', newMicState);
-    if (localStreamRef.current) {
-      const audioTracks = localStreamRef.current.getAudioTracks();
-      console.log('[VideoConf] Tracks audio:', audioTracks.length);
-      audioTracks.forEach(track => {
-        track.enabled = newMicState;
-        console.log('[VideoConf]   - Track audio enabled:', track.enabled);
-      });
-    }
-    setMicEnabled(newMicState);
-  }, [micEnabled]);
-
-  const toggleVideo = useCallback(() => {
-    const newVideoState = !videoEnabled;
-    console.log('[VideoConf] 📹 Toggle vidéo:', videoEnabled, '→', newVideoState);
-    if (localStreamRef.current) {
-      const videoTracks = localStreamRef.current.getVideoTracks();
-      console.log('[VideoConf] Tracks vidéo:', videoTracks.length);
-      videoTracks.forEach(track => {
-        track.enabled = newVideoState;
-        console.log('[VideoConf]   - Track vidéo enabled:', track.enabled, 'readyState:', track.readyState);
-      });
-    }
-    setVideoEnabled(newVideoState);
-  }, [videoEnabled]);
-
-  // Use refs for mic/video state so getMedia doesn't change identity on toggle
-  const micEnabledRef = useRef(micEnabled);
-  const videoEnabledRef = useRef(videoEnabled);
-  useEffect(() => { micEnabledRef.current = micEnabled; }, [micEnabled]);
-  useEffect(() => { videoEnabledRef.current = videoEnabled; }, [videoEnabled]);
-
-  const getMedia = useCallback(async () => {
-    try {
-      console.log('[VideoConf] 📷 Demande accès média...');
-      const constraints: MediaStreamConstraints = {
-        video: initialSettings?.selectedCamera
-          ? { deviceId: { exact: initialSettings.selectedCamera }, width: { ideal: 1280 }, height: { ideal: 720 } }
-          : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: initialSettings?.selectedMicrophone
-          ? { deviceId: { exact: initialSettings.selectedMicrophone }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          : { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('[VideoConf] ✅ Stream obtenu, tracks:', stream.getTracks().length);
-
-      stream.getAudioTracks().forEach(track => {
-        track.enabled = micEnabledRef.current;
-        console.log('[VideoConf]   - Audio track enabled:', track.enabled);
-      });
-      stream.getVideoTracks().forEach(track => {
-        track.enabled = videoEnabledRef.current;
-        console.log('[VideoConf]   - Video track enabled:', track.enabled);
-      });
-
-      setLocalStream(stream);
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        console.log('[VideoConf] ✅ Stream attaché à la vidéo locale');
-      }
-      return stream;
-    } catch (error) {
-      console.error('[VideoConf] ❌ Erreur accès média:', error);
-      return null;
-    }
-  }, [initialSettings?.selectedCamera, initialSettings?.selectedMicrophone]);
-
-  const createPeerConnection = useCallback((targetId: string, stream: MediaStream) => {
-    console.log('[VideoConf] 🔗 Création PeerConnection pour:', targetId);
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-
-    // Gérer les états de connexion
-    pc.onconnectionstatechange = () => {
-      console.log(`[VideoConf] État connexion avec ${targetId}:`, pc.connectionState);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        console.warn(`[VideoConf] ⚠️ Connexion ${pc.connectionState} avec ${targetId}`);
-      } else if (pc.connectionState === 'connected') {
-        console.log(`[VideoConf] ✅ Connecté avec ${targetId}`);
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log(`[VideoConf] État ICE avec ${targetId}:`, pc.iceConnectionState);
-    };
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        console.log(`[VideoConf] 🧊 Envoi ICE candidate à ${targetId}`);
-        socketRef.current.emit('sending-ice-candidate', { candidate: event.candidate.toJSON(), toId: targetId });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log(`[VideoConf] 📺 Track reçu de ${targetId}, streams:`, event.streams.length);
-      if (event.streams[0]) {
-        addRemoteStream(targetId, event.streams[0]);
-      }
-    };
-
-    // Ajouter les tracks locaux
-    const tracks = stream.getTracks();
-    console.log(`[VideoConf] ➕ Ajout de ${tracks.length} tracks à la connexion avec ${targetId}`);
-    tracks.forEach(track => {
-      console.log(`[VideoConf]   - Track: ${track.kind}, enabled: ${track.enabled}`);
-      pc.addTrack(track, stream);
-    });
-
-    peersRef.current.set(targetId, pc);
-    return pc;
-  }, [addRemoteStream]);
-
-  // Init media
+  // ✅ Le stream est déjà configuré par PreMeetingSetup via VideoContext.
+  // NE PAS recréer le stream ici — cela causerait une race condition avec joinRoom
+  // et casserait les PeerConnections.
   useEffect(() => {
-    getMedia();
+    if (initialSettings) {
+      console.log('[VideoConf] 🎬 Pré-meeting settings reçus (stream déjà configuré):', {
+        mic: initialSettings.micEnabled,
+        camera: initialSettings.videoEnabled,
+      });
+    }
   }, []);
 
   useEffect(() => {
-    if (localStream && localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream;
+    if (!ROOM_ID) {
+      return;
     }
-  }, [localStream]);
 
-  // WebSocket signaling
+    console.log('[VideoConf] 🚪 Rejoindre room avec device settings');
+    joinRoomRef.current(ROOM_ID, authToken || '');
+    return () => leaveRoomRef.current();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ROOM_ID, authToken]);
+
+  // Re-attach stream to BOTH video refs whenever stream/state changes.
+  // ✅ Aussi appeler .play() explicitement après toggle ON pour forcer le rendu
   useEffect(() => {
-    let mounted = true;
+    const stream = localStreamRef.current;
 
-    console.log('[VideoConf] Connexion au serveur:', DYNAMIC_SERVER_URL);
+    if (!stream) {
+      console.log('[VideoConf] ⚠️ Pas de stream à attacher');
+      return;
+    }
 
-    const socket = io(DYNAMIC_SERVER_URL, {
-      ...API_CONFIG.SOCKET_CONFIG,
-      auth: authToken ? { token: authToken } : undefined,
-    });
+    // ✅ TOUJOURS ré-assigner + .play() pour garantir l'affichage après toggle
+    if (localVideoGridRef.current) {
+      localVideoGridRef.current.srcObject = stream;
+      localVideoGridRef.current.play().catch(() => {});
+      const videoTrack = stream.getVideoTracks()[0];
+      console.log('[VideoConf] ✅ Stream attaché à localVideoGridRef - videoTrack.enabled =', videoTrack?.enabled);
+    }
 
-    socket.on('connect', async () => {
-      if (!mounted) return;
-      console.log('[VideoConf] ✅ Connecté au serveur, socket ID:', socket.id);
-      setConnectionStatus('Connecté');
-      setMyId(socket.id);
-      if (!localStreamRef.current) await getMedia();
-      socket.emit('join-room', ROOM_ID);
-      console.log('[VideoConf] Room rejoint:', ROOM_ID);
-    });
+    if (localVideoMiniRef.current) {
+      localVideoMiniRef.current.srcObject = stream;
+      localVideoMiniRef.current.play().catch(() => {});
+      const videoTrack = stream.getVideoTracks()[0];
+      console.log('[VideoConf] ✅ Stream attaché à localVideoMiniRef - videoTrack.enabled =', videoTrack?.enabled);
+    }
 
-    socket.on('connect_error', (error) => {
-      console.error('[VideoConf] ❌ Erreur de connexion:', error);
-      setConnectionStatus('Erreur de connexion');
-    });
+    // Log state pour debug
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
+    console.log('[VideoConf] 📊 Stream state: viewMode=' + viewMode + ', videoTrack.enabled=' + videoTrack?.enabled + ', audioTrack.enabled=' + audioTrack?.enabled);
+  }, [localStream, viewMode, isVideoEnabled, isMicEnabled]);
 
-    socket.on('disconnect', (reason) => {
-      console.log('[VideoConf] Déconnecté:', reason);
-      setConnectionStatus('Déconnecté');
-    });
+  // ── Chargement des prérequis (lazy : uniquement quand l'onglet est ouvert) ──
+  useEffect(() => {
+    if (leftPanelTab !== 'prerequisites') return;
+    if (prereqData !== null) return; // déjà chargé
+    if (!roomId) {
+      setPrereqError(language === 'fr' ? 'ID réunion manquant' : 'Missing meeting ID');
+      return;
+    }
 
-    socket.on('get-existing-users', async (users: string[]) => {
-      console.log('[VideoConf] 👥 Utilisateurs existants:', users);
-      setConnectedUsers(users);
-      let stream = localStreamRef.current;
-      if (!stream) stream = await getMedia();
-      if (!stream) {
-        console.error('[VideoConf] ❌ Pas de stream local disponible');
-        return;
-      }
-      for (const userId of users) {
-        if (userId === socket.id || peersRef.current.has(userId)) continue;
-        console.log('[VideoConf] 📞 Création offre pour:', userId);
-        const pc = createPeerConnection(userId, stream);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('sending-offer', { offer: pc.localDescription, toId: userId });
-      }
-    });
+    let cancelled = false;
+    setPrereqLoading(true);
+    setPrereqError(null);
 
-    socket.on('user-joined', async (userId: string) => {
-      console.log('[VideoConf] ➕ Nouvel utilisateur rejoint:', userId);
-      setConnectedUsers(prev => [...prev, userId]);
-      let stream = localStreamRef.current;
-      if (!stream) stream = await getMedia();
-      if (!stream || peersRef.current.has(userId)) return;
-      console.log('[VideoConf] 📞 Création offre pour nouvel utilisateur:', userId);
-      const pc = createPeerConnection(userId, stream);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('sending-offer', { offer: pc.localDescription, toId: userId });
-    });
+    fetchMeetingPrerequisiteDetails(roomId, authToken ?? null)
+      .then(data => {
+        if (!cancelled) {
+          setPrereqData(data);
+          setPrereqLoading(false);
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          console.error('[VideoConf] ❌ Erreur chargement prérequis:', err);
+          setPrereqError(err.message ?? (language === 'fr' ? 'Erreur de chargement' : 'Load error'));
+          setPrereqLoading(false);
+        }
+      });
 
-    socket.on('user-left', (userId: string) => {
-      console.log('[VideoConf] ➖ Utilisateur parti:', userId);
-      setConnectedUsers(prev => prev.filter(id => id !== userId));
-      removeRemoteStream(userId);
-      peersRef.current.get(userId)?.close();
-      peersRef.current.delete(userId);
-    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leftPanelTab, roomId]);
 
-    socket.on('receiving-offer', async (offer: any, fromId: string) => {
-      console.log('[VideoConf] 📥 Offre reçue de:', fromId);
-      let stream = localStreamRef.current;
-      if (!stream) stream = await getMedia();
-      if (!stream) return;
-      const pc = createPeerConnection(fromId, stream);
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('sending-answer', { answer: pc.localDescription, toId: fromId });
-      console.log('[VideoConf] 📤 Réponse envoyée à:', fromId);
-    });
+  const handleSelectPrereqItem = useCallback(
+    (item: PrerequisiteItemDetail, doctor: ParticipantDetail) => {
+      setActivePrereqItem(item);
+      setActivePrereqDoctor(doctor);
+      setViewMode('prerequisites');
+    },
+    [],
+  );
 
-    socket.on('receiving-answer', async (answer: any, fromId: string) => {
-      console.log('[VideoConf] 📥 Réponse reçue de:', fromId);
-      const pc = peersRef.current.get(fromId);
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log('[VideoConf] ✅ Réponse appliquée pour:', fromId);
+  const handleClosePrereqModule = useCallback(() => {
+    setActivePrereqItem(null);
+    setActivePrereqDoctor(null);
+    setViewMode('video');
+  }, []);
+
+  const remoteParticipants = useMemo(() => {
+    return Array.from(participants.entries()).filter(([id]) => id !== mySocketId);
+  }, [participants, mySocketId]);
+
+  const remoteStreams = useMemo(() => {
+    const map = new Map<string, MediaStream>();
+    remoteParticipants.forEach(([id, participant]) => {
+      if (participant.stream) {
+        map.set(id, participant.stream);
       }
     });
-
-    socket.on('receiving-ice-candidate', async (candidate: any, fromId: string) => {
-      const pc = peersRef.current.get(fromId);
-      if (pc) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log('[VideoConf] 🧊 ICE candidate ajouté de:', fromId);
-      }
-    });
-
-    socket.on('message-history', (messages: any[]) => {
-      setChatMessages(messages.map(m => ({
-        id: m.id || String(Date.now()),
-        user: m.sender || 'Utilisateur',
-        time: new Date(m.createdAt || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        message: m.content
-      })));
-    });
-
-    socket.on('receive-chat-message', (content: string, senderId: string, timestamp: Date) => {
-      setChatMessages(prev => [...prev, {
-        id: String(Date.now()),
-        user: senderId === socket.id ? 'Vous' : `Participant`,
-        time: new Date(timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        message: content
-      }]);
-    });
-
-    socketRef.current = socket as AppSocket;
-
-    return () => {
-      mounted = false;
-      socket.disconnect();
-      peersRef.current.forEach(pc => pc.close());
-      peersRef.current.clear();
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(t => t.stop());
-        localStreamRef.current = null;
-      }
-    };
-  }, [DYNAMIC_SERVER_URL, ROOM_ID, authToken, createPeerConnection, getMedia, removeRemoteStream]);
+    return map;
+  }, [remoteParticipants]);
 
   const handleSendMessage = () => {
     const content = chatMessage.trim();
-    if (!content || !socketRef.current) {
-      console.warn('[VideoConf] ⚠️ Impossible d\'envoyer le message:', !content ? 'vide' : 'socket non connecté');
+    if (!content) {
       return;
     }
-    console.log('[VideoConf] 💬 Envoi message:', content);
-    socketRef.current.emit('send-chat-message', { content, roomId: ROOM_ID, senderId: socketRef.current.id || '' });
     setChatMessages(prev => [...prev, {
       id: String(Date.now()),
       user: 'Vous',
       time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-      message: content
+      message: content,
     }]);
     setChatMessage('');
   };
 
-  const toggleScreenShare = async () => {
-    if (isScreenSharing) {
-      screenStreamRef.current?.getTracks().forEach(t => t.stop());
-      screenStreamRef.current = null;
-      setIsScreenSharing(false);
-    } else {
-      try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        screenStreamRef.current = screenStream;
-        setIsScreenSharing(true);
-        screenStream.getVideoTracks()[0].onended = () => {
-          setIsScreenSharing(false);
-          screenStreamRef.current = null;
-        };
-      } catch (err) {
-        console.error('Erreur partage écran:', err);
-      }
+  const restoreCameraTrack = useCallback(async () => {
+    try {
+      await setCameraOn(true, initialSettings?.selectedCamera);
+    } catch (error) {
+      console.error('[VideoConf] ❌ Erreur restore camera:', error);
     }
-  };
+  }, [setCameraOn, initialSettings]);
 
-  const totalParticipants = 1 + remoteStreams.size;
+  const toggleScreenShare = useCallback(async () => {
+    try {
+      if (isScreenSharing) {
+        screenStreamRef.current?.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
+        setIsScreenSharing(false);
+        await restoreCameraTrack();
+        return;
+      }
+
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      if (!screenTrack) {
+        return;
+      }
+
+      screenStreamRef.current = screenStream;
+      replaceVideoTrack(screenTrack);
+      setIsScreenSharing(true);
+
+      screenTrack.onended = () => {
+        setIsScreenSharing(false);
+        screenStreamRef.current = null;
+        restoreCameraTrack();
+      };
+    } catch (err) {
+      console.error('[VideoConf] ❌ Erreur partage ecran:', err);
+    }
+  }, [isScreenSharing, replaceVideoTrack, restoreCameraTrack]);
+
+  // ✅ Déléguer entièrement au VideoContext - il gère tracks + state
+  const handleToggleMic = useCallback(async () => {
+    console.log('[VideoConf] 🎤 ========== TOGGLE MIC CLICKED ==========');
+    console.log('[VideoConf] 🎤 État actuel:', isMicEnabled);
+    console.log('[VideoConf] 🎤 Nouveau état:', !isMicEnabled);
+    try {
+      await setMicOn(!isMicEnabled);
+      console.log('[VideoConf] ✅ Mic toggled successfully');
+    } catch (error) {
+      console.error('[VideoConf] ❌ Erreur toggle mic:', error);
+    }
+  }, [isMicEnabled, setMicOn]);
+
+  const handleToggleCamera = useCallback(async () => {
+    console.log('[VideoConf] 📹 ========== TOGGLE CAMERA CLICKED ==========');
+    console.log('[VideoConf] 📹 État actuel:', isVideoEnabled);
+    console.log('[VideoConf] 📹 Nouveau état:', !isVideoEnabled);
+    try {
+      await setCameraOn(!isVideoEnabled);
+      console.log('[VideoConf] ✅ Camera toggled successfully');
+    } catch (error) {
+      console.error('[VideoConf] ❌ Erreur toggle camera:', error);
+    }
+  }, [isVideoEnabled, setCameraOn]);
+
+  const handleToggleLeftPanel = useCallback(() => {
+    console.log('[VideoConf] 📂 Toggle left panel');
+    setLeftPanelOpen(prev => !prev);
+  }, []);
+
+  const handleToggleRightPanel = useCallback(() => {
+    console.log('[VideoConf] 💬 Toggle right panel');
+    if (rightPanelOpen && rightPanelTab === 'chat') {
+      setRightPanelOpen(false);
+    } else {
+      setRightPanelOpen(true);
+      setRightPanelTab('chat');
+    }
+  }, [rightPanelOpen, rightPanelTab]);
+
+  const handleToggleParticipants = useCallback(() => {
+    console.log('[VideoConf] 👥 Toggle participants');
+    if (rightPanelOpen && rightPanelTab === 'participants') {
+      setRightPanelOpen(false);
+    } else {
+      setRightPanelOpen(true);
+      setRightPanelTab('participants');
+    }
+  }, [rightPanelOpen, rightPanelTab]);
+
+  const totalParticipants = Math.max(1, participants.size || 1);
 
   // Translations
   const txt = {
     you: language === 'fr' ? 'Vous' : 'You',
-    cameraOff: language === 'fr' ? 'Caméra désactivée' : 'Camera off',
+    cameraOff: language === 'fr' ? 'Camera desactivee' : 'Camera off',
     waitingParticipants: language === 'fr' ? 'En attente de participants' : 'Waiting for participants',
     noMessages: language === 'fr' ? 'Aucun message' : 'No messages',
     messagePlaceholder: language === 'fr' ? 'Message...' : 'Message...',
     noOtherParticipant: language === 'fr' ? 'Aucun autre participant' : 'No other participants',
-    connected: language === 'fr' ? 'Connecté' : 'Connected',
-    selectImagery: language === 'fr' ? 'Sélectionnez une imagerie dans le panel de gauche' : 'Select imagery from the left panel',
+    connected: language === 'fr' ? 'Connecte' : 'Connected',
+    selectImagery: language === 'fr' ? 'Selectionnez une imagerie dans le panel de gauche' : 'Select imagery from the left panel',
     hide: language === 'fr' ? 'Masquer' : 'Hide',
     quit: language === 'fr' ? 'Quitter' : 'Leave',
     addDocument: language === 'fr' ? 'Ajouter un document' : 'Add document',
     search: language === 'fr' ? 'Rechercher...' : 'Search...',
     suspectZone: language === 'fr' ? 'Zone suspecte' : 'Suspect zone',
-    age: language === 'fr' ? 'Âge' : 'Age',
+    age: language === 'fr' ? 'Age' : 'Age',
     bloodType: language === 'fr' ? 'Groupe sanguin' : 'Blood type',
     allergies: language === 'fr' ? 'Allergies' : 'Allergies',
     diagnostic: language === 'fr' ? 'Diagnostic' : 'Diagnosis',
-    lastVisit: language === 'fr' ? 'Dernière visite' : 'Last visit',
+    lastVisit: language === 'fr' ? 'Derniere visite' : 'Last visit',
     nextRCP: language === 'fr' ? 'Prochaine RCP' : 'Next RCP',
     years: language === 'fr' ? 'ans' : 'years',
     slices: language === 'fr' ? 'coupes' : 'slices',
+    prerequisites: language === 'fr' ? 'Prérequis' : 'Prereqs',
+    prereqSelectPrompt: language === 'fr'
+      ? 'Sélectionnez un prérequis dans le panneau gauche'
+      : 'Select a prerequisite from the left panel',
   };
-
-  // Control button component
-  const ControlButton = ({ onClick, active, danger, children, label }: {
-    onClick: () => void;
-    active?: boolean;
-    danger?: boolean;
-    children: React.ReactNode;
-    label?: string;
-  }) => (
-    <button
-      onClick={onClick}
-      title={label}
-      style={{
-        width: '44px',
-        height: '44px',
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: 'none',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        backgroundColor: danger ? C.red : active ? C.blue : C.bgControl,
-        color: C.textWhite,
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.backgroundColor = danger ? C.redDark : active ? C.blueDark : C.bgControlHover;
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.backgroundColor = danger ? C.red : active ? C.blue : C.bgControl;
-      }}
-    >
-      {children}
-    </button>
-  );
 
   return (
     <div style={{
@@ -590,18 +556,23 @@ export function VideoConferenceAdvanced({
         {/* Right: Status + controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Connection status */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
-            backgroundColor: connectionStatus === 'Connecté' ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)',
-            color: connectionStatus === 'Connecté' ? C.green : C.yellow,
-          }}>
-            <div style={{
-              width: '6px', height: '6px', borderRadius: '50%',
-              backgroundColor: connectionStatus === 'Connecté' ? C.green : C.yellow,
-            }} />
-            {connectionStatus}
-          </div>
+          {(() => {
+            const isGreen = connectionStatus === 'Connecte' || connectionStatus === 'Connecté' || connectionStatus === 'En room';
+            return (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
+                backgroundColor: isGreen ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)',
+                color: isGreen ? C.green : C.yellow,
+              }}>
+                <div style={{
+                  width: '6px', height: '6px', borderRadius: '50%',
+                  backgroundColor: isGreen ? C.green : C.yellow,
+                }} />
+                {isGreen ? 'Connecté' : connectionStatus}
+              </div>
+            );
+          })()}
 
           {/* View mode toggle */}
           <div style={{
@@ -618,154 +589,108 @@ export function VideoConferenceAdvanced({
                   display: 'flex', alignItems: 'center', gap: '4px',
                   backgroundColor: viewMode === mode ? C.bgControlHover : 'transparent',
                   color: viewMode === mode ? C.textWhite : C.textGray,
-                  transition: 'all 0.2s',
                 }}
               >
                 {mode === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
-                {mode === 'video' ? 'Vidéo' : (language === 'fr' ? 'Imagerie' : 'Imagery')}
+                {mode === 'video' ? 'Video' : 'Imagerie'}
               </button>
             ))}
           </div>
 
-          {/* Participants count */}
-          <button
-            onClick={() => { setRightPanelOpen(true); setRightPanelTab('participants'); }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '4px',
-              padding: '4px 8px', border: 'none', borderRadius: '4px',
-              backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-              fontSize: '12px',
-            }}
-          >
-            <Users size={14} />
-            {totalParticipants}
-          </button>
-
           {/* Close */}
           <button
-            onClick={onClose}
-            style={{
-              width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-              backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
+            onClick={() => { fullLeaveRoom(); onClose(); }}
+            style={{ width: '32px', height: '32px', border: 'none', backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer' }}
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
       </div>
 
-      {/* ===== MAIN CONTENT ===== */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-
+      {/* ===== MAIN AREA ===== */}
+      <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
         {/* ===== LEFT PANEL ===== */}
         {leftPanelOpen && (
           <div style={{
-            width: '280px',
-            backgroundColor: C.bgPanel,
+            width: '280px', backgroundColor: C.bgPanel,
             borderRight: `1px solid ${C.border}`,
             display: 'flex', flexDirection: 'column', flexShrink: 0,
-            overflow: 'hidden',
           }}>
-            {/* Panel tabs */}
+            {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
               {[
                 { id: 'patient', icon: UserIcon, label: 'Patient' },
                 { id: 'documents', icon: FileText, label: 'Docs' },
                 { id: 'imagery', icon: ImageIcon, label: 'Images' },
+                { id: 'prerequisites', icon: ClipboardList, label: txt.prerequisites },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setLeftPanelTab(tab.id as any)}
                   style={{
-                    flex: 1, padding: '10px 8px', border: 'none', cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
-                    fontSize: '11px', transition: 'all 0.2s',
-                    backgroundColor: leftPanelTab === tab.id ? 'rgba(59,130,246,0.1)' : 'transparent',
+                    flex: 1, padding: '10px 4px', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                    fontSize: '11px', backgroundColor: 'transparent',
                     color: leftPanelTab === tab.id ? C.blueLight : C.textGray,
                     borderBottom: leftPanelTab === tab.id ? `2px solid ${C.blueLight}` : '2px solid transparent',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <tab.icon size={16} />
-                  {tab.label}
+                  <tab.icon size={14} /> {tab.label}
                 </button>
               ))}
             </div>
 
-            {/* Panel content */}
+            {/* Content */}
             <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
               {/* PATIENT TAB */}
               {leftPanelTab === 'patient' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Patient avatar */}
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    padding: '12px', backgroundColor: C.bgCard, borderRadius: '10px',
+                    backgroundColor: C.bgCard, borderRadius: '12px', padding: '12px',
+                    display: 'flex', alignItems: 'center', gap: '10px',
                   }}>
                     <div style={{
-                      width: '48px', height: '48px', borderRadius: '50%',
-                      backgroundColor: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'white', fontWeight: 600, fontSize: '16px',
+                      width: '46px', height: '46px', borderRadius: '12px',
+                      backgroundColor: 'rgba(59,130,246,0.15)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
                     }}>
-                      {displayPatientName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      <UserIcon size={24} color={C.blue} />
                     </div>
                     <div>
-                      <p style={{ color: C.textWhite, fontWeight: 500, margin: 0 }}>{patientInfo.name}</p>
-                      <p style={{ color: C.textGray, fontSize: '12px', margin: 0 }}>{patientInfo.id}</p>
+                      <p style={{ color: C.textWhite, fontSize: '14px', fontWeight: 500, margin: 0 }}>{patientInfo.name}</p>
+                      <p style={{ color: C.textGrayDark, fontSize: '12px', margin: '4px 0 0' }}>{patientInfo.id}</p>
                     </div>
                   </div>
 
-                  {/* Quick info */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <div style={{ backgroundColor: C.bgCard, padding: '10px', borderRadius: '8px' }}>
-                      <p style={{ color: C.textGrayDark, fontSize: '11px', margin: 0 }}>{txt.age}</p>
-                      <p style={{ color: C.textWhite, fontSize: '14px', fontWeight: 500, margin: '2px 0 0' }}>{patientInfo.age} {txt.years}</p>
-                    </div>
-                    <div style={{ backgroundColor: C.bgCard, padding: '10px', borderRadius: '8px' }}>
-                      <p style={{ color: C.textGrayDark, fontSize: '11px', margin: 0 }}>{txt.bloodType}</p>
-                      <p style={{ color: C.textWhite, fontSize: '14px', fontWeight: 500, margin: '2px 0 0' }}>{patientInfo.bloodType}</p>
-                    </div>
-                  </div>
-
-                  {/* Diagnostic */}
-                  <div style={{ backgroundColor: C.bgCard, padding: '12px', borderRadius: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <Stethoscope size={16} color={C.orange} />
-                      <span style={{ color: C.textGray, fontSize: '11px' }}>{txt.diagnostic}</span>
-                    </div>
-                    <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>{patientInfo.diagnosis}</p>
-                  </div>
-
-                  {/* Allergies */}
-                  <div style={{
-                    backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
-                    padding: '12px', borderRadius: '10px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <Activity size={16} color={C.red} />
-                      <span style={{ color: C.red, fontSize: '12px', fontWeight: 500 }}>{txt.allergies}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                      {patientInfo.allergies.map((allergy, i) => (
-                        <span key={i} style={{
-                          backgroundColor: 'rgba(239,68,68,0.2)', color: '#fca5a5',
-                          padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
-                        }}>{allergy}</span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Dates */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <Clock size={16} color={C.textGrayDark} />
-                      <span style={{ color: C.textGray }}>{txt.lastVisit}:</span>
-                      <span style={{ color: C.textWhite }}>{patientInfo.lastVisit}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <Calendar size={16} color={C.textGrayDark} />
-                      <span style={{ color: C.textGray }}>{txt.nextRCP}:</span>
-                      <span style={{ color: C.blueLight }}>{patientInfo.nextRCP}</span>
+                  <div style={{ backgroundColor: C.bgCard, borderRadius: '12px', padding: '12px' }}>
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Calendar size={16} color={C.textGray} />
+                        <span style={{ color: C.textGray, fontSize: '12px', minWidth: '90px' }}>{txt.age}</span>
+                        <span style={{ color: C.textWhite, fontSize: '12px' }}>{patientInfo.age} {txt.years}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Activity size={16} color={C.textGray} />
+                        <span style={{ color: C.textGray, fontSize: '12px', minWidth: '90px' }}>{txt.bloodType}</span>
+                        <span style={{ color: C.textWhite, fontSize: '12px' }}>{patientInfo.bloodType}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Stethoscope size={16} color={C.textGray} />
+                        <span style={{ color: C.textGray, fontSize: '12px', minWidth: '90px' }}>{txt.diagnostic}</span>
+                        <span style={{ color: C.textWhite, fontSize: '12px' }}>{patientInfo.diagnosis}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Clock size={16} color={C.textGray} />
+                        <span style={{ color: C.textGray, fontSize: '12px', minWidth: '90px' }}>{txt.lastVisit}</span>
+                        <span style={{ color: C.textWhite, fontSize: '12px' }}>{patientInfo.lastVisit}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Calendar size={16} color={C.textGray} />
+                        <span style={{ color: C.textGray, fontSize: '12px', minWidth: '90px' }}>{txt.nextRCP}</span>
+                        <span style={{ color: C.textWhite, fontSize: '12px' }}>{patientInfo.nextRCP}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -774,73 +699,67 @@ export function VideoConferenceAdvanced({
               {/* DOCUMENTS TAB */}
               {leftPanelTab === 'documents' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {/* Search */}
-                  <div style={{ position: 'relative', marginBottom: '4px' }}>
-                    <Search size={16} color={C.textGrayDark} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                    <input
-                      placeholder={txt.search}
-                      value={searchDoc}
-                      onChange={(e) => setSearchDoc(e.target.value)}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <Search size={14} color={C.textGray} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                      <input
+                        placeholder={txt.search}
+                        value={searchDoc}
+                        onChange={(e) => setSearchDoc(e.target.value)}
+                        style={{
+                          width: '100%', padding: '8px 8px 8px 30px',
+                          borderRadius: '8px', border: 'none', backgroundColor: C.bgCard,
+                          color: C.textWhite, fontSize: '12px', outline: 'none',
+                        }}
+                      />
+                    </div>
+                    <button
                       style={{
-                        width: '100%', height: '32px', paddingLeft: '32px', paddingRight: '8px',
-                        backgroundColor: C.bgCard, border: 'none', borderRadius: '6px',
-                        color: C.textWhite, fontSize: '13px', outline: 'none',
-                        boxSizing: 'border-box',
+                        padding: '8px 10px', border: 'none', borderRadius: '8px',
+                        backgroundColor: C.blue, color: 'white', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
-                    />
+                    >
+                      <Upload size={16} />
+                    </button>
                   </div>
 
-                  {documents.filter(d => d.name.toLowerCase().includes(searchDoc.toLowerCase())).map((doc) => (
-                    <div
-                      key={doc.id}
-                      style={{
-                        padding: '12px', backgroundColor: C.bgCard, borderRadius: '10px',
-                        cursor: 'pointer', transition: 'background-color 0.2s',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = C.bgCardHover; }}
-                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = C.bgCard; }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                  {documents
+                    .filter(doc => doc.name.toLowerCase().includes(searchDoc.toLowerCase()))
+                    .map((doc) => (
+                      <div
+                        key={doc.id}
+                        style={{
+                          padding: '10px', borderRadius: '10px', backgroundColor: C.bgCard,
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                          border: `1px solid ${C.border}`,
+                        }}
+                      >
                         <div style={{
                           width: '40px', height: '40px', borderRadius: '8px',
-                          backgroundColor: doc.type === 'pdf' ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          backgroundColor: 'rgba(59,130,246,0.15)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>
-                          <FileText size={20} color={doc.type === 'pdf' ? '#f87171' : C.blueLight} />
+                          <FileText size={20} color={C.blue} />
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ color: C.textWhite, fontSize: '13px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</p>
-                          <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{doc.owner} • {doc.date}</p>
-                          <p style={{ color: C.textGrayDarker, fontSize: '11px', margin: '1px 0 0' }}>{doc.size}</p>
+                          <p style={{ color: C.textWhite, fontSize: '12px', margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {doc.name}
+                          </p>
+                          <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '4px 0 0' }}>{doc.owner} • {doc.date}</p>
                         </div>
-                        <button style={{
-                          width: '32px', height: '32px', border: 'none', borderRadius: '6px',
-                          backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          opacity: 0.5, transition: 'opacity 0.2s',
-                        }}
-                          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
-                          onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; }}
-                        >
+                        <button style={{ border: 'none', backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer' }}>
                           <Download size={16} />
                         </button>
                       </div>
-                    </div>
-                  ))}
+                    ))}
 
-                  <button style={{
-                    width: '100%', padding: '10px', marginTop: '4px',
-                    border: `1px dashed ${C.textGrayDark}`, borderRadius: '8px',
-                    backgroundColor: 'transparent', color: C.textGray,
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                    fontSize: '13px', transition: 'all 0.2s',
-                  }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = C.textGray; e.currentTarget.style.color = C.textWhite; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = C.textGrayDark; e.currentTarget.style.color = C.textGray; }}
-                  >
-                    <Upload size={16} />
-                    {txt.addDocument}
-                  </button>
+                  {documents.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                      <FileText size={40} color={C.textGrayDarker} style={{ margin: '0 auto 8px' }} />
+                      <p style={{ color: C.textGrayDark, fontSize: '13px', margin: 0 }}>{txt.addDocument}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -887,6 +806,17 @@ export function VideoConferenceAdvanced({
                   ))}
                 </div>
               )}
+
+              {/* PREREQUISITES TAB */}
+              {leftPanelTab === 'prerequisites' && (
+                <PrerequisitesTab
+                  data={prereqData}
+                  loading={prereqLoading}
+                  error={prereqError}
+                  language={language as 'fr' | 'en'}
+                  onSelectItem={handleSelectPrereqItem}
+                />
+              )}
             </div>
 
             {/* Hide button */}
@@ -924,7 +854,24 @@ export function VideoConferenceAdvanced({
 
         {/* ===== CENTER - VIDEO / IMAGERY ===== */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {viewMode === 'imagery' ? (
+          {viewMode === 'prerequisites' ? (
+            /* PREREQUISITES MODULE – zone centrale */
+            activePrereqItem && activePrereqDoctor ? (
+              <PrerequisiteModulePlaceholder
+                item={activePrereqItem}
+                doctor={activePrereqDoctor}
+                language={language as 'fr' | 'en'}
+                onClose={handleClosePrereqModule}
+              />
+            ) : (
+              <div style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: C.textGrayDark, fontSize: '13px',
+              }}>
+                {txt.prereqSelectPrompt}
+              </div>
+            )
+          ) : viewMode === 'imagery' ? (
             /* IMAGERY VIEW */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               {/* Imagery toolbar */}
@@ -1011,10 +958,10 @@ export function VideoConferenceAdvanced({
                           transform: 'translate(-50%, -50%)', width: '75%', height: '75%',
                         }}>
                           <svg viewBox="0 0 200 200" style={{ width: '100%', height: '100%' }}>
-                            <ellipse cx="100" cy="100" rx="70" ry="80" fill="none" stroke="rgba(96,165,250,0.3)" strokeWidth="2"/>
-                            <path d="M 100 30 Q 140 50 140 100 Q 140 150 100 170 Q 60 150 60 100 Q 60 50 100 30" fill="rgba(59,130,246,0.2)" stroke="rgba(96,165,250,0.5)" strokeWidth="1.5"/>
-                            <circle cx="120" cy="90" r="20" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3"/>
-                            <line x1="140" y1="80" x2="180" y2="50" stroke="#22d3ee" strokeWidth="1"/>
+                            <ellipse cx="100" cy="100" rx="70" ry="80" fill="none" stroke="rgba(96,165,250,0.3)" strokeWidth="2" />
+                            <path d="M 100 30 Q 140 50 140 100 Q 140 150 100 170 Q 60 150 60 100 Q 60 50 100 30" fill="rgba(59,130,246,0.2)" stroke="rgba(96,165,250,0.5)" strokeWidth="1.5" />
+                            <circle cx="120" cy="90" r="20" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3" />
+                            <line x1="140" y1="80" x2="180" y2="50" stroke="#22d3ee" strokeWidth="1" />
                             <text x="182" y="48" fill="#22d3ee" fontSize="10">{txt.suspectZone}</text>
                           </svg>
                         </div>
@@ -1036,10 +983,14 @@ export function VideoConferenceAdvanced({
                     boxShadow: '0 4px 12px rgba(0,0,0,0.5)', border: `1px solid ${C.borderLight}`,
                     position: 'relative',
                   }}>
-                    {localStream && videoEnabled ? (
-                      <video ref={localVideoRef} autoPlay muted playsInline
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-                    ) : (
+                    {/* Video element always in DOM so srcObject persists */}
+                    <video ref={attachLocalVideoMini} autoPlay muted playsInline
+                      style={{
+                        width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)',
+                        display: showLocalVideo ? 'block' : 'none',
+                      }} />
+                    {/* Avatar when camera is off */}
+                    {!showLocalVideo && (
                       <div style={{
                         width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
@@ -1060,117 +1011,239 @@ export function VideoConferenceAdvanced({
               </div>
             </div>
           ) : (
-            /* VIDEO GRID VIEW */
-            <div style={{
-              flex: 1, display: 'grid', gap: '8px', padding: '12px',
-              gridTemplateColumns: totalParticipants <= 2 ? (totalParticipants === 1 ? '1fr' : '1fr 1fr') : 'repeat(2, 1fr)',
-              gridTemplateRows: totalParticipants <= 2 ? '1fr' : 'repeat(2, 1fr)',
-            }}>
-              {/* My video */}
+            /* VIDEO VIEW — active speaker large + small tiles strip */
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px', gap: '8px', overflow: 'hidden' }}>
+              {/* Main stage: active speaker or self */}
               <div style={{
-                backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
-                position: 'relative', minHeight: '180px',
+                flex: 1, backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
+                position: 'relative', minHeight: 0,
               }}>
-                {/* Video element always in DOM so srcObject persists across toggles */}
-                <video ref={localVideoRef} autoPlay muted playsInline
-                  style={{
-                    width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)',
-                    display: videoEnabled && localStream ? 'block' : 'none',
-                  }} />
-                {/* Avatar shown when camera is off */}
-                {(!videoEnabled || !localStream) && (
-                  <div style={{
-                    width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
+                {remoteStreams.size > 0 ? (
+                  /* Show first remote participant as main speaker */
+                  (() => {
+                    const [mainId, mainStream] = Array.from(remoteStreams.entries())[0];
+                    const mainParticipant = participants.get(mainId);
+                    const mainName = mainParticipant?.name || `Participant ${mainId.slice(0, 6)}`;
+                    const mainInitials = mainParticipant?.name
+                      ? mainParticipant.name.split(' ').map(n => n[0]).join('').toUpperCase()
+                      : 'P';
+                    const mainVideoOn = mainParticipant?.videoEnabled !== false;
+                    return (
+                      <>
+                        {/* Video toujours dans le DOM, caché si caméra off */}
+                        <video autoPlay playsInline
+                          style={{
+                            width: '100%', height: '100%', objectFit: 'cover',
+                            display: mainVideoOn ? 'block' : 'none',
+                          }}
+                          ref={(video) => { if (video) video.srcObject = mainStream; }}
+                        />
+                        {/* Avatar quand caméra off */}
+                        {!mainVideoOn && (
+                          <div style={{
+                            width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            {mainParticipant?.avatarUrl ? (
+                              <img src={mainParticipant.avatarUrl} alt={mainName}
+                                style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', marginBottom: '12px' }} />
+                            ) : (
+                              <div style={{
+                                width: '80px', height: '80px', borderRadius: '50%', backgroundColor: C.purple,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'white', fontSize: '28px', fontWeight: 600, marginBottom: '12px',
+                              }}>{mainInitials}</div>
+                            )}
+                            <p style={{ color: C.textWhite, fontSize: '16px', margin: 0, fontWeight: 500 }}>{mainName}</p>
+                            <p style={{ color: C.textGrayDark, fontSize: '13px', margin: '6px 0 0' }}>{txt.cameraOff}</p>
+                          </div>
+                        )}
+                        {/* Overlay nom + statut */}
+                        <div style={{
+                          position: 'absolute', bottom: '12px', left: '12px',
+                          backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                          borderRadius: '8px', padding: '6px 12px',
+                          display: 'flex', alignItems: 'center', gap: '8px',
+                        }}>
+                          <span style={{ color: 'white', fontSize: '14px', fontWeight: 500 }}>{mainName}</span>
+                          {mainParticipant?.speciality && (
+                            <span style={{ color: C.textGray, fontSize: '11px' }}>• {mainParticipant.speciality}</span>
+                          )}
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {mainParticipant && !mainParticipant.micEnabled && (
+                              <div style={{
+                                width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.red,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}><MicOff size={12} color="white" /></div>
+                            )}
+                            {mainParticipant && !mainParticipant.videoEnabled && (
+                              <div style={{
+                                width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.textGrayDark,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}><VideoOff size={12} color="white" /></div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  /* Alone — show self as main */
+                  <>
+                    <video ref={attachLocalVideoGrid} autoPlay muted playsInline
+                      style={{
+                        width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)',
+                        display: showLocalVideo ? 'block' : 'none',
+                      }} />
+                    {!showLocalVideo && (
+                      <div style={{
+                        width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <div style={{
+                          width: '80px', height: '80px', borderRadius: '50%', backgroundColor: C.blue,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: 'white', fontSize: '28px', fontWeight: 600, marginBottom: '12px',
+                        }}>{currentDoctorInitials}</div>
+                        <p style={{ color: C.textWhite, fontSize: '16px', margin: 0, fontWeight: 500 }}>{currentDoctorName}</p>
+                        <p style={{ color: C.textGrayDark, fontSize: '13px', margin: '6px 0 0' }}>{txt.cameraOff}</p>
+                      </div>
+                    )}
                     <div style={{
-                      width: '64px', height: '64px', borderRadius: '50%', backgroundColor: C.blue,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'white', fontSize: '22px', fontWeight: 600, marginBottom: '8px',
-                    }}>{currentDoctorInitials}</div>
-                    <p style={{ color: C.textWhite, fontSize: '14px', margin: 0 }}>{currentDoctorName}</p>
-                    <p style={{ color: C.textGrayDark, fontSize: '12px', margin: '4px 0 0' }}>{txt.cameraOff}</p>
+                      position: 'absolute', bottom: '12px', left: '12px',
+                      backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                      borderRadius: '8px', padding: '6px 12px',
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                    }}>
+                      <span style={{ color: 'white', fontSize: '14px', fontWeight: 500 }}>{currentDoctorName}</span>
+                      <span style={{
+                        backgroundColor: 'rgba(59,130,246,0.8)', color: 'white',
+                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                      }}>{txt.you}</span>
+                    </div>
+                  </>
+                )}
+
+                {/* Floating local preview (picture-in-picture) when remote participants exist */}
+                {remoteStreams.size > 0 && (
+                  <div style={{
+                    position: 'absolute', bottom: '12px', right: '12px',
+                    width: '180px', aspectRatio: '16/9',
+                    backgroundColor: C.bgCard, borderRadius: '10px', overflow: 'hidden',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)', border: `2px solid ${C.borderLight}`,
+                  }}>
+                    <video ref={attachLocalVideoGrid} autoPlay muted playsInline
+                      style={{
+                        width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)',
+                        display: showLocalVideo ? 'block' : 'none',
+                      }} />
+                    {!showLocalVideo && (
+                      <div style={{
+                        width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <div style={{
+                          width: '40px', height: '40px', borderRadius: '50%', backgroundColor: C.blue,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: 'white', fontSize: '14px', fontWeight: 600,
+                        }}>{currentDoctorInitials}</div>
+                      </div>
+                    )}
+                    <div style={{
+                      position: 'absolute', bottom: '4px', left: '6px',
+                      backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: '4px',
+                      padding: '2px 6px', fontSize: '11px', color: 'white',
+                    }}>{txt.you}</div>
+                    <div style={{ position: 'absolute', top: '4px', right: '4px', display: 'flex', gap: '3px' }}>
+                      {!isMicEnabled && (
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '50%', backgroundColor: C.red,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}><MicOff size={10} color="white" /></div>
+                      )}
+                      {!isVideoEnabled && (
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '50%', backgroundColor: C.textGrayDark,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}><VideoOff size={10} color="white" /></div>
+                      )}
+                    </div>
                   </div>
                 )}
-                {/* Name overlay */}
-                <div style={{
-                  position: 'absolute', bottom: '8px', left: '8px', right: '8px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}>
-                  <div style={{
-                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                    borderRadius: '6px', padding: '4px 8px',
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                  }}>
-                    <span style={{ color: 'white', fontSize: '13px' }}>{currentDoctorName}</span>
-                    <span style={{
-                      backgroundColor: 'rgba(59,130,246,0.8)', color: 'white',
-                      padding: '1px 6px', borderRadius: '4px', fontSize: '11px',
-                    }}>{txt.you}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    {!micEnabled && (
-                      <div style={{
-                        width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.red,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}><MicOff size={12} color="white" /></div>
-                    )}
-                    {!videoEnabled && (
-                      <div style={{
-                        width: '24px', height: '24px', borderRadius: '50%', backgroundColor: C.textGrayDark,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}><VideoOff size={12} color="white" /></div>
-                    )}
-                  </div>
-                </div>
               </div>
 
-              {/* Remote videos */}
-              {Array.from(remoteStreams.entries()).map(([id, stream]) => (
-                <div key={id} style={{
-                  backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
-                  position: 'relative', minHeight: '180px',
+              {/* Bottom strip: additional remote participants (if more than 1) */}
+              {remoteStreams.size > 1 && (
+                <div style={{
+                  height: '120px', display: 'flex', gap: '8px', flexShrink: 0,
                 }}>
-                  <video autoPlay playsInline
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', minHeight: '180px' }}
-                    ref={(video) => { if (video) video.srcObject = stream; }}
-                  />
-                  <div style={{
-                    position: 'absolute', bottom: '8px', left: '8px',
-                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                    borderRadius: '6px', padding: '4px 8px',
-                  }}>
-                    <span style={{ color: 'white', fontSize: '13px' }}>Participant {id.slice(0, 6)}</span>
-                  </div>
+                  {Array.from(remoteStreams.entries()).slice(1).map(([id, stream]) => {
+                    const participant = participants.get(id);
+                    const name = participant?.name || `Participant ${id.slice(0, 6)}`;
+                    const initials = participant?.name
+                      ? participant.name.split(' ').map(n => n[0]).join('').toUpperCase()
+                      : 'P';
+                    const videoOn = participant?.videoEnabled !== false;
+                    return (
+                      <div key={id} style={{
+                        flex: '0 0 200px', backgroundColor: C.bgCard, borderRadius: '10px',
+                        overflow: 'hidden', position: 'relative',
+                      }}>
+                        <video autoPlay playsInline
+                          style={{
+                            width: '100%', height: '100%', objectFit: 'cover',
+                            display: videoOn ? 'block' : 'none',
+                          }}
+                          ref={(video) => { if (video) video.srcObject = stream; }}
+                        />
+                        {!videoOn && (
+                          <div style={{
+                            width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <div style={{
+                              width: '40px', height: '40px', borderRadius: '50%', backgroundColor: C.purple,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: 'white', fontSize: '14px', fontWeight: 600,
+                            }}>{initials}</div>
+                          </div>
+                        )}
+                        <div style={{
+                          position: 'absolute', bottom: '4px', left: '6px',
+                          backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '4px',
+                          padding: '2px 6px', fontSize: '11px', color: 'white',
+                          display: 'flex', alignItems: 'center', gap: '4px',
+                        }}>
+                          <span>{name}</span>
+                          {participant && !participant.micEnabled && <MicOff size={10} color={C.red} />}
+                          {participant && !participant.videoEnabled && <VideoOff size={10} color={C.textGray} />}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+              )}
 
-              {/* Placeholder when alone */}
+              {/* Waiting placeholder when alone — shown below main video */}
               {remoteStreams.size === 0 && (
                 <div style={{
-                  backgroundColor: 'rgba(42,42,42,0.5)', borderRadius: '12px',
-                  border: `2px dashed ${C.borderLight}`,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  padding: '24px',
+                  height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  gap: '12px', flexShrink: 0,
                 }}>
-                  <Users size={40} color={C.textGrayDarker} style={{ marginBottom: '8px' }} />
-                  <p style={{ color: C.textGray, fontSize: '14px', margin: 0 }}>{txt.waitingParticipants}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                    <code style={{
-                      backgroundColor: 'rgba(59,130,246,0.1)', color: C.blueLight,
-                      padding: '4px 8px', borderRadius: '4px', fontSize: '12px',
-                    }}>{ROOM_ID.length > 20 ? ROOM_ID.slice(0, 20) + '...' : ROOM_ID}</code>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(ROOM_ID)}
-                      style={{
-                        width: '24px', height: '24px', border: 'none', borderRadius: '4px',
-                        backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                    >
-                      <Copy size={12} />
-                    </button>
-                  </div>
+                  <Users size={18} color={C.textGrayDarker} />
+                  <span style={{ color: C.textGray, fontSize: '13px' }}>{txt.waitingParticipants}</span>
+                  <code style={{
+                    backgroundColor: 'rgba(59,130,246,0.1)', color: C.blueLight,
+                    padding: '3px 8px', borderRadius: '4px', fontSize: '12px',
+                  }}>{ROOM_ID.length > 20 ? ROOM_ID.slice(0, 20) + '...' : ROOM_ID}</code>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(ROOM_ID)}
+                    style={{
+                      width: '24px', height: '24px', border: 'none', borderRadius: '4px',
+                      backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <Copy size={12} />
+                  </button>
                 </div>
               )}
             </div>
@@ -1293,13 +1366,13 @@ export function VideoConferenceAdvanced({
                       <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{currentDoctorRole}</p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {micEnabled ? <Mic size={14} color={C.green} /> : <MicOff size={14} color={C.red} />}
-                      {videoEnabled ? <Video size={14} color={C.green} /> : <VideoOff size={14} color={C.textGrayDark} />}
+                      {isMicEnabled ? <Mic size={14} color={C.green} /> : <MicOff size={14} color={C.red} />}
+                      {isVideoEnabled ? <Video size={14} color={C.green} /> : <VideoOff size={14} color={C.textGrayDark} />}
                     </div>
                   </div>
 
                   {/* Remote participants */}
-                  {Array.from(remoteStreams.keys()).map((id) => (
+                  {remoteParticipants.map(([id, participant]) => (
                     <div key={id} style={{
                       display: 'flex', alignItems: 'center', gap: '12px',
                       padding: '8px', borderRadius: '10px', transition: 'background-color 0.2s',
@@ -1311,15 +1384,19 @@ export function VideoConferenceAdvanced({
                         width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.purple,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0,
-                      }}>{id.slice(0, 2).toUpperCase()}</div>
+                      }}>{participant.firstName?.[0] || 'P'}{participant.lastName?.[0] || ''}</div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>Participant {id.slice(0, 6)}</p>
+                        <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>{participant.name || `Participant ${id.slice(0, 6)}`}</p>
                         <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{txt.connected}</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {participant.micEnabled ? <Mic size={14} color={C.green} /> : <MicOff size={14} color={C.red} />}
+                        {participant.videoEnabled ? <Video size={14} color={C.green} /> : <VideoOff size={14} color={C.textGrayDark} />}
                       </div>
                     </div>
                   ))}
 
-                  {remoteStreams.size === 0 && (
+                  {remoteParticipants.length === 0 && (
                     <p style={{ color: C.textGrayDark, fontSize: '13px', textAlign: 'center', padding: '16px 0' }}>
                       {txt.noOtherParticipant}
                     </p>
@@ -1371,20 +1448,20 @@ export function VideoConferenceAdvanced({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Left panel toggle */}
-          <ControlButton onClick={() => setLeftPanelOpen(!leftPanelOpen)} active={leftPanelOpen}>
+          <ControlButton onClick={handleToggleLeftPanel} active={leftPanelOpen}>
             <FolderOpen size={20} />
           </ControlButton>
 
           <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 4px' }} />
 
           {/* Mic */}
-          <ControlButton onClick={toggleMic} danger={!micEnabled}>
-            {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+          <ControlButton onClick={handleToggleMic} danger={!isMicEnabled}>
+            {isMicEnabled ? <Mic size={20} /> : <MicOff size={20} />}
           </ControlButton>
 
           {/* Camera */}
-          <ControlButton onClick={toggleVideo} danger={!videoEnabled}>
-            {videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+          <ControlButton onClick={handleToggleCamera} danger={!isVideoEnabled}>
+            {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
           </ControlButton>
 
           {/* Screen share */}
@@ -1396,7 +1473,7 @@ export function VideoConferenceAdvanced({
 
           {/* Chat */}
           <ControlButton
-            onClick={() => { setRightPanelOpen(true); setRightPanelTab('chat'); }}
+            onClick={handleToggleRightPanel}
             active={rightPanelOpen && rightPanelTab === 'chat'}
           >
             <MessageSquare size={20} />
@@ -1404,7 +1481,7 @@ export function VideoConferenceAdvanced({
 
           {/* Participants */}
           <ControlButton
-            onClick={() => { setRightPanelOpen(true); setRightPanelTab('participants'); }}
+            onClick={handleToggleParticipants}
             active={rightPanelOpen && rightPanelTab === 'participants'}
           >
             <Users size={20} />
@@ -1419,7 +1496,7 @@ export function VideoConferenceAdvanced({
 
           {/* Leave */}
           <button
-            onClick={onClose}
+            onClick={() => { fullLeaveRoom(); onClose(); }}
             style={{
               height: '44px', padding: '0 20px', borderRadius: '22px',
               border: 'none', backgroundColor: C.red, color: 'white',

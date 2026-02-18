@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { ClientToServerEvents, ServerToClientEvents } from '../types/video';
+import { ClientToServerEvents, ServerToClientEvents, ParticipantPayload } from '../types/video';
 import { API_CONFIG } from '../config/api.config';
 
 type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -71,7 +71,7 @@ export class VideoService {
       });
 
       // Rejoindre la room
-      this.socket.emit('join-room', this.config.roomId);
+      this.socket.emit('join-room', { roomId: this.config.roomId, micEnabled: true, videoEnabled: true });
 
     } catch (error) {
       this.updateStatus('error');
@@ -86,15 +86,18 @@ export class VideoService {
     if (!this.socket) return;
 
     // Utilisateurs existants dans la room
-    this.socket.on('get-existing-users', async (users: string[]) => {
-      console.log('[VideoService] Utilisateurs existants:', users);
-      for (const userId of users) {
+    this.socket.on('get-existing-users', async (users: ParticipantPayload[]) => {
+      const normalized = users || [];
+      console.log('[VideoService] Utilisateurs existants:', normalized.map(u => u.socketId));
+      for (const user of normalized) {
+        const userId = user.socketId;
         await this.createPeerConnection(userId, true);
       }
     });
 
     // Nouvel utilisateur rejoint
-    this.socket.on('user-joined', async (userId: string) => {
+    this.socket.on('user-joined', async (participant: ParticipantPayload) => {
+      const userId = participant.socketId;
       console.log('[VideoService] Utilisateur rejoint:', userId);
       this.config.onUserJoined?.(userId);
       await this.createPeerConnection(userId, true);

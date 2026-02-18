@@ -14,10 +14,10 @@ export class RoomsService {
     ) { }
 
     async create(createRoomDto: CreateRoomDto): Promise<Room> {
-        // Préparation des données avec l'UUID
+        const roomId = createRoomDto.roomId || uuidv4();
         const roomData = {
             ...createRoomDto,
-            roomId: uuidv4(),
+            roomId,
             active: true
         };
        

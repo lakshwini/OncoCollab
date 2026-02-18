@@ -1,148 +1,238 @@
-import { Page } from '../App';
-import { Calendar, Users, Video, Plus, Clock, MapPin } from 'lucide-react';
+import { Page, User } from '../App';
+import { Calendar, Users, Video, Plus, Clock, MapPin, Info, Trash2, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { MeetingPreparationStatus } from './MeetingPreparationStatus';
 import { useLanguage } from '../i18n';
+import { useState, useEffect } from 'react';
+import { fetchMeetings, fetchMeetingsStats, fetchMeetingDetails, deleteMeeting, rescheduleMeeting, Meeting as ApiMeeting, MeetingStats, MeetingDetails } from '../services/meetings.service';
+import { MeetingDetailsModal } from './MeetingDetailsModal';
+import { ScheduleRCPModal } from './ScheduleRCPModal';
+import { toast } from 'sonner';
 
 interface RCPMeetingsProps {
   onNavigate: (page: Page) => void;
-  onNavigateToPrerequisites: (meetingInfo: { title: string; date: string; time: string; roomId?: string; patientName?: string }) => void;
+  onNavigateToPrerequisites: (meetingInfo: { meetingId?: string; title: string; date: string; time: string; roomId?: string; patientName?: string }) => void;
   onNavigateToVideo?: (meetingInfo: { title: string; roomId: string; patientName?: string }) => void;
   currentUser?: User;
+  authToken?: string | null;
 }
 
-export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateToVideo, currentUser }: RCPMeetingsProps) {
+export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateToVideo, currentUser, authToken }: RCPMeetingsProps) {
   const { language, t } = useLanguage();
+  const [meetings, setMeetings] = useState<ApiMeeting[]>([]);
+  const [stats, setStats] = useState<MeetingStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Toutes les réunions
-  const upcomingMeetings = [
-    {
-      id: '1',
-      title: 'RCP Thoracique',
-      roomId: 'rcp-thoracique-2025-11-11',
-      patientName: 'Mme. Lambert',
-      date: '2025-11-11',
-      time: '10:00',
-      duration: '2h',
-      location: 'Salle visio A',
-      participants: [
-        { name: 'Dr. Martin', role: 'Radiologue' },
-        { name: 'Dr. Dubois', role: 'Oncologue' },
-        { name: 'Dr. Laurent', role: 'Chirurgien' },
-        { name: 'Infirmière Dupont', role: 'Infirmier' },
-      ],
-      participantsPreparation: [
-        {
-          id: '1',
-          name: 'Dr. Martin',
-          role: 'Radiologue',
-          initials: 'DM',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-            { id: 'p2', title: 'Analyser imageries', status: 'completed' as const },
-            { id: 'p3', title: 'Préparer annotations', status: 'completed' as const },
-          ],
-        },
-        {
-          id: '2',
-          name: 'Dr. Dubois',
-          role: 'Oncologue',
-          initials: 'DD',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-            { id: 'p2', title: 'Analyser bilans biologiques', status: 'pending' as const },
-            { id: 'p3', title: 'Préparer protocoles', status: 'pending' as const },
-          ],
-        },
-        {
-          id: '3',
-          name: 'Dr. Laurent',
-          role: 'Chirurgien',
-          initials: 'DL',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-            { id: 'p2', title: 'Évaluer faisabilité chirurgicale', status: 'completed' as const },
-          ],
-        },
-      ],
-      status: 'upcoming',
-      patientCount: 5,
-    },
-    {
-      id: '2',
-      title: 'RCP Cancers Digestifs',
-      roomId: 'rcp-cancers-digestifs-2025-11-13',
-      patientName: 'M. Martin',
-      date: '2025-11-13',
-      time: '14:30',
-      duration: '1h30',
-      location: 'Salle visio B',
-      participants: [
-        { name: 'Dr. Chen', role: 'Gastro-entérologue' },
-        { name: 'Dr. Dubois', role: 'Oncologue' },
-        { name: 'Dr. Petit', role: 'Chirurgien' },
-        { name: 'Infirmière Dupont', role: 'Infirmier' },
-      ],
-      participantsPreparation: [
-        {
-          id: '1',
-          name: 'Dr. Chen',
-          role: 'Gastro-entérologue',
-          initials: 'DC',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-            { id: 'p2', title: 'Analyser endoscopies', status: 'completed' as const },
-          ],
-        },
-        {
-          id: '2',
-          name: 'Dr. Dubois',
-          role: 'Oncologue',
-          initials: 'DD',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'pending' as const },
-            { id: 'p2', title: 'Préparer protocoles', status: 'pending' as const },
-          ],
-        },
-        {
-          id: '3',
-          name: 'Dr. Petit',
-          role: 'Chirurgien',
-          initials: 'DP',
-          prerequisites: [
-            { id: 'p1', title: 'Consulter dossiers patients', status: 'completed' as const },
-            { id: 'p2', title: 'Évaluer faisabilité', status: 'completed' as const },
-            { id: 'p3', title: 'Préparer options opératoires', status: 'completed' as const },
-          ],
-        },
-      ],
-      status: 'upcoming',
-      patientCount: 3,
-    },
-  ];
+  // State pour le modal de détails
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [selectedMeetingDetails, setSelectedMeetingDetails] = useState<MeetingDetails | null>(null);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
-  const pastMeetings = [
-    {
-      id: '3',
-      title: 'RCP Thoracique',
-      date: '2025-11-04',
-      time: '10:00',
-      participants: 4,
-      patientCount: 6,
-      status: 'completed',
-    },
-    {
-      id: '4',
-      title: 'RCP Cancers ORL',
-      date: '2025-10-28',
-      time: '15:00',
-      participants: 5,
-      patientCount: 4,
-      status: 'completed',
-    },
-  ];
+  // State pour le modal de création
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+
+  // State pour la confirmation de suppression
+  const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
+
+  // State pour le modal de reprogrammation
+  const [reschedulingMeeting, setReschedulingMeeting] = useState<{ id: string; title: string } | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleTime, setRescheduleTime] = useState('');
+
+  // Fonction pour charger et afficher les détails d'une réunion
+  const handleOpenDetails = async (meetingId: string) => {
+    setIsDetailsModalOpen(true);
+    setIsLoadingDetails(true);
+    setSelectedMeetingDetails(null);
+
+    try {
+      const details = await fetchMeetingDetails(meetingId, authToken || null);
+      console.log('[RCPMeetings] Détails de la réunion chargés:', details);
+      setSelectedMeetingDetails(details);
+    } catch (err: any) {
+      console.error('[RCPMeetings] Erreur lors du chargement des détails:', err);
+      // On garde le modal ouvert pour afficher l'erreur
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  // Fonction pour recharger les réunions après création
+  const handleMeetingCreated = async () => {
+    await loadData();
+  };
+
+  // Fonction pour supprimer une réunion
+  const handleDeleteMeeting = async (meetingId: string) => {
+    try {
+      await deleteMeeting(meetingId, authToken || null);
+      toast.success(language === 'fr' ? 'Réunion supprimée avec succès' : 'Meeting deleted successfully');
+      setDeletingMeetingId(null);
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.message || (language === 'fr' ? 'Erreur lors de la suppression' : 'Error deleting meeting'));
+    }
+  };
+
+  // Fonction pour reprogrammer une réunion
+  const handleRescheduleMeeting = async () => {
+    if (!reschedulingMeeting || !rescheduleDate || !rescheduleTime) return;
+
+    try {
+      const startTime = new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString();
+      await rescheduleMeeting(
+        reschedulingMeeting.id,
+        { startTime, postponedReason: language === 'fr' ? 'Reprogrammée' : 'Rescheduled' },
+        authToken || null,
+      );
+      toast.success(language === 'fr' ? 'Réunion reprogrammée avec succès' : 'Meeting rescheduled successfully');
+      setReschedulingMeeting(null);
+      setRescheduleDate('');
+      setRescheduleTime('');
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.message || (language === 'fr' ? 'Erreur lors de la reprogrammation' : 'Error rescheduling meeting'));
+    }
+  };
+
+  // Vérifier si l'utilisateur est organizer/co_admin pour une réunion
+  const isAdminForMeeting = (meeting: ApiMeeting): boolean => {
+    if (!currentUser) return false;
+    const participant = meeting.participants?.find(p => p.doctorId === currentUser.id);
+    return participant?.meetingRole === 'organizer' || participant?.meetingRole === 'co_admin';
+  };
+
+  // Fonction pour charger les données
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log('[RCPMeetings] Chargement des données depuis l\'API...');
+
+      // CRITICAL FIX: Pass currentUser.id to filter meetings only where user is participant
+      const currentUserId = currentUser?.id;
+      if (!currentUserId) {
+        setError('Utilisateur non authentifié');
+        console.error('[RCPMeetings] currentUser.id manquant!');
+        setIsLoading(false);
+        return;
+      }
+
+      // Charger les réunions et les stats en parallèle
+      // IMPORTANT: fetchMeetings with doctorId filters to ONLY meetings where user participates
+      const [meetingsData, statsData] = await Promise.all([
+        fetchMeetings(authToken || null, currentUserId),
+        fetchMeetingsStats(authToken || null),
+      ]);
+
+      console.log('[RCPMeetings] Réunions chargées pour docteur', currentUserId, ':', meetingsData.length, meetingsData);
+      console.log('[RCPMeetings] Statistiques chargées:', statsData);
+
+      setMeetings(meetingsData);
+      setStats(statsData);
+    } catch (err: any) {
+      console.error('[RCPMeetings] Erreur lors du chargement des données:', err);
+      setError(err.message || 'Erreur lors du chargement des données');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Charger les réunions et statistiques depuis l'API au montage du composant
+  useEffect(() => {
+    loadData();
+  }, [authToken, currentUser?.id]);
+
+  // Transformer les données API en format attendu par le composant
+  const transformMeetingData = (apiMeeting: ApiMeeting) => {
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() + 7);
+
+    const startTime = apiMeeting.startTime ? new Date(apiMeeting.startTime) : defaultDate;
+
+    const duration = apiMeeting.startTime && apiMeeting.endTime
+      ? `${Math.round((new Date(apiMeeting.endTime).getTime() - new Date(apiMeeting.startTime).getTime()) / (60 * 60 * 1000))}h`
+      : '2h';
+
+    // Récupérer le premier patient (pour l'affichage principal)
+    const firstPatient = apiMeeting.patients && apiMeeting.patients.length > 0
+      ? apiMeeting.patients[0]
+      : null;
+
+    const patientName = firstPatient
+      ? `${firstPatient.patientName} (${firstPatient.patientNumber})`
+      : 'Patient non spécifié';
+
+    return {
+      id: apiMeeting.id,
+      title: apiMeeting.title,
+      roomId: apiMeeting.id,
+      patientName,
+      date: startTime.toISOString().split('T')[0],
+      time: startTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      duration,
+      location: 'Salle visio',
+      participants: apiMeeting.participants.map(p => ({
+        name: p.doctorName,
+        role: p.speciality,
+      })),
+      participantsPreparation: apiMeeting.participants.map(p => ({
+        id: p.doctorId,
+        name: p.doctorName,
+        role: p.speciality,
+        initials: p.doctorName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+        prerequisites: [],
+      })),
+      status: apiMeeting.status === 'finished' ? 'completed' : 'upcoming',
+      patientCount: apiMeeting.patientCount || apiMeeting.patients?.length || 0,
+    };
+  };
+
+  // Séparer les réunions à venir et passées
+  const upcomingMeetings = meetings
+    .filter(m => m.status !== 'finished')
+    .map(transformMeetingData);
+
+  const pastMeetings = meetings
+    .filter(m => m.status === 'finished')
+    .map(m => {
+      const transformed = transformMeetingData(m);
+      return {
+        id: transformed.id,
+        title: transformed.title,
+        date: transformed.date,
+        time: transformed.time,
+        participants: m.participantCount,
+        patientCount: 1,
+        status: 'completed',
+      };
+    });
+
+  // Message de chargement ou d'erreur
+  if (isLoading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">{language === 'fr' ? 'Chargement des réunions...' : 'Loading meetings...'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+          <p className="text-red-800 font-medium mb-2">{language === 'fr' ? 'Erreur' : 'Error'}</p>
+          <p className="text-red-600 text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -160,7 +250,10 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
             <Calendar className="w-4 h-4 mr-2" />
             {t.meetings.viewCalendar}
           </Button>
-          <Button className="bg-blue-600 hover:bg-blue-700">
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => setIsScheduleModalOpen(true)}
+          >
             <Plus className="w-4 h-4 mr-2" />
             {t.meetings.planRCP}
           </Button>
@@ -234,12 +327,40 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
 
                   <div className="flex gap-2 pt-4 border-t border-gray-200">
                     <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => handleOpenDetails(meeting.id)}
+                    >
+                      <Info className="w-4 h-4 mr-2" />
+                      {t.common.details}
+                    </Button>
+                    {isAdminForMeeting(meetings.find(m => m.id === meeting.id)!) && (
+                      <>
+                        <Button
+                          variant="outline"
+                          className="flex-1 border-orange-300 text-orange-700 hover:bg-orange-50"
+                          onClick={() => setReschedulingMeeting({ id: meeting.id, title: meeting.title })}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          {language === 'fr' ? 'Reporter' : 'Reschedule'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-red-300 text-red-700 hover:bg-red-50"
+                          onClick={() => setDeletingMeetingId(meeting.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
+                    <Button
                       className="flex-1 bg-blue-600 hover:bg-blue-700"
                       onClick={() => {
                         if (onNavigateToVideo) {
+                          // ✅ CORRECTION: Utiliser meeting.id (UUID PostgreSQL) comme roomId
                           onNavigateToVideo({
                             title: meeting.title,
-                            roomId: meeting.roomId,
+                            roomId: meeting.id,  // ✅ meeting.id = UUID de PostgreSQL (pas meeting.roomId)
                             patientName: meeting.patientName,
                           });
                         } else {
@@ -249,19 +370,6 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
                     >
                       <Video className="w-4 h-4 mr-2" />
                       {t.common.join}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => onNavigateToPrerequisites({
-                        title: meeting.title,
-                        date: meeting.date,
-                        time: meeting.time,
-                        roomId: meeting.roomId,
-                        patientName: meeting.patientName,
-                      })}
-                    >
-                      {t.common.details}
                     </Button>
                   </div>
                 </div>
@@ -311,47 +419,148 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">{t.meetings.thisMonth}</p>
-                <p className="text-gray-900">12 {t.meetings.meetingsCount}</p>
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">{t.meetings.thisMonth}</p>
+                  <p className="text-gray-900">{stats.thisMonthMeetingsCount} {t.meetings.meetingsCount}</p>
+                </div>
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <Calendar className="w-6 h-6 text-blue-600" />
+                </div>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-blue-600" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">{t.meetings.patientsDiscussed}</p>
+                  <p className="text-gray-900">{stats.totalPatientsDiscussed} {t.meetings.dossiersCount}</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <Users className="w-6 h-6 text-green-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">{t.meetings.averageDuration}</p>
+                  <p className="text-gray-900">{stats.averageDuration}</p>
+                </div>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-purple-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal des détails de la réunion */}
+      <MeetingDetailsModal
+        isOpen={isDetailsModalOpen}
+        onClose={() => setIsDetailsModalOpen(false)}
+        meetingDetails={selectedMeetingDetails}
+        isLoading={isLoadingDetails}
+      />
+
+      {/* Modal de création de réunion */}
+      <ScheduleRCPModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        currentUserId={currentUser?.id || ''}
+        authToken={authToken || null}
+        onSuccess={handleMeetingCreated}
+      />
+
+      {/* Dialogue de confirmation de suppression */}
+      {deletingMeetingId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              {language === 'fr' ? 'Confirmer la suppression' : 'Confirm deletion'}
+            </h3>
+            <p className="text-gray-600 mb-6">
+              {language === 'fr'
+                ? 'Cette action est irréversible. La réunion, ses participants, rôles, messages et prérequis seront supprimés définitivement.'
+                : 'This action is irreversible. The meeting, participants, roles, messages and prerequisites will be permanently deleted.'}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setDeletingMeetingId(null)}>
+                {language === 'fr' ? 'Annuler' : 'Cancel'}
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={() => handleDeleteMeeting(deletingMeetingId)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                {language === 'fr' ? 'Supprimer' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dialogue de reprogrammation */}
+      {reschedulingMeeting && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              {language === 'fr' ? 'Reprogrammer la réunion' : 'Reschedule meeting'}
+            </h3>
+            <p className="text-gray-600 mb-4 text-sm">
+              {language === 'fr'
+                ? `L'ancienne réunion "${reschedulingMeeting.title}" sera marquée comme reportée. Une nouvelle réunion sera créée avec les mêmes patients et participants.`
+                : `The previous meeting "${reschedulingMeeting.title}" will be marked as postponed. A new meeting will be created with the same patients and participants.`}
+            </p>
+            <div className="space-y-3 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {language === 'fr' ? 'Nouvelle date' : 'New date'}
+                </label>
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {language === 'fr' ? 'Nouvelle heure' : 'New time'}
+                </label>
+                <input
+                  type="time"
+                  value={rescheduleTime}
+                  onChange={(e) => setRescheduleTime(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">{t.meetings.patientsDiscussed}</p>
-                <p className="text-gray-900">48 {t.meetings.dossiersCount}</p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <Users className="w-6 h-6 text-green-600" />
-              </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setReschedulingMeeting(null); setRescheduleDate(''); setRescheduleTime(''); }}>
+                {language === 'fr' ? 'Annuler' : 'Cancel'}
+              </Button>
+              <Button
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+                onClick={handleRescheduleMeeting}
+                disabled={!rescheduleDate || !rescheduleTime}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                {language === 'fr' ? 'Reprogrammer' : 'Reschedule'}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">{t.meetings.averageDuration}</p>
-                <p className="text-gray-900">1h 45min</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

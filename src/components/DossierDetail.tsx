@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, 
   Upload, 
@@ -11,7 +11,9 @@ import {
   Edit,
   Save,
   Pencil,
-  Maximize2
+  Maximize2,
+  AlertCircle,
+  Loader
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -26,6 +28,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { ImageAnnotator } from './ImageAnnotator';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface DossierDetailProps {
   dossierId: string;
@@ -33,65 +36,123 @@ interface DossierDetailProps {
 }
 
 export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
-  const [status, setStatus] = useState('En cours');
+  const [status, setStatus] = useState('scheduled');
   const [notes, setNotes] = useState('');
   const [showImageAnnotator, setShowImageAnnotator] = useState(false);
+  const [dossierData, setDossierData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const dossierData = {
-    id: dossierId,
-    patientName: 'Martin Pierre',
-    patientId: 'P-2025-001',
-    age: 64,
-    type: 'Cancer du poumon',
-    status: status,
-    responsible: 'Dr. Marie Dubois',
-    createdDate: '2025-10-15',
-    lastModified: '2025-11-10',
-  };
+  // Load dossier data from backend
+  useEffect(() => {
+    const fetchDossierData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-  const history = [
-    {
-      date: '2025-11-10 14:30',
-      user: 'Dr. Dubois',
-      action: 'Ajout d\'imagerie scanner thoracique',
-    },
-    {
-      date: '2025-11-09 10:15',
-      user: 'Dr. Laurent',
-      action: 'Modification du statut en "En cours"',
-    },
-    {
-      date: '2025-10-15 09:00',
-      user: 'Dr. Dubois',
-      action: 'Création du dossier',
-    },
-  ];
+        const token = localStorage.getItem('onco_collab_token');
+        if (!token) {
+          setError('Non authentifié');
+          return;
+        }
 
-  const documents = [
-    { name: 'Compte-rendu biopsie.pdf', type: 'PDF', size: '2.4 MB', date: '2025-10-20' },
-    { name: 'Analyses sanguines.pdf', type: 'PDF', size: '1.1 MB', date: '2025-10-18' },
-    { name: 'Résultats PET-scan.pdf', type: 'PDF', size: '3.7 MB', date: '2025-10-25' },
-  ];
+        const headers = createAuthHeaders(token);
+        const res = await fetch(createApiUrl(`/patients/${dossierId}`), { headers });
 
-  const images = [
-    { name: 'Scanner thoracique - Coupe 1', type: 'DICOM', date: '2025-11-10' },
-    { name: 'Scanner thoracique - Coupe 2', type: 'DICOM', date: '2025-11-10' },
-    { name: 'Scanner thoracique - Coupe 3', type: 'DICOM', date: '2025-11-10' },
-  ];
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError('Dossier non trouvé');
+          } else {
+            setError('Erreur lors du chargement du dossier');
+          }
+          return;
+        }
+
+        const data = await res.json();
+        setDossierData(data);
+
+        // Set status from meeting if available
+        if (data.meeting?.status) {
+          setStatus(data.meeting.status);
+        }
+      } catch (err) {
+        console.error('Error loading dossier:', err);
+        setError('Erreur serveur');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDossierData();
+  }, [dossierId]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Validé':
+      case 'finished':
         return 'bg-green-100 text-green-700';
-      case 'En cours':
+      case 'live':
+      case 'scheduled':
         return 'bg-blue-100 text-blue-700';
-      case 'En attente':
+      case 'draft':
+      case 'postponed':
         return 'bg-orange-100 text-orange-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
   };
 
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      'scheduled': 'Programmée',
+      'draft': 'Brouillon',
+      'live': 'En direct',
+      'postponed': 'Reportée',
+      'finished': 'Terminée',
+    };
+    return labels[status] || status;
+  };
+
+  // ✅ Interface vide si pas de données
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <Button variant="ghost" size="icon" onClick={onBack}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex-1 text-center py-12">
+            <Loader className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" />
+            <p className="text-gray-600">Chargement du dossier...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !dossierData) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-start gap-4">
+          <Button variant="ghost" size="icon" onClick={onBack}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex-1">
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="p-6 flex items-center gap-4">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <p className="text-red-700">{error || 'Dossier non trouvé'}</p>
+              </CardContent>
+            </Card>
+            <Button variant="outline" className="mt-4" onClick={onBack}>
+              Retour
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Afficher les vraies données from PostgreSQL
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -101,21 +162,27 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-gray-900 mb-1">Dossier {dossierData.patientName}</h1>
-            <p className="text-gray-600">{dossierData.patientId} • {dossierData.type}</p>
+            <h1 className="text-gray-900 mb-1">
+              Dossier {dossierData.firstName} {dossierData.lastName}
+            </h1>
+            <p className="text-gray-600">{dossierData.patientNumber}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="En attente">En attente</SelectItem>
-              <SelectItem value="En cours">En cours</SelectItem>
-              <SelectItem value="Validé">Validé</SelectItem>
-            </SelectContent>
-          </Select>
+          {dossierData.meeting && (
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Brouillon</SelectItem>
+                <SelectItem value="scheduled">Programmée</SelectItem>
+                <SelectItem value="live">En direct</SelectItem>
+                <SelectItem value="postponed">Reportée</SelectItem>
+                <SelectItem value="finished">Terminée</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <Button className="bg-blue-600 hover:bg-blue-700">
             <Save className="w-4 h-4 mr-2" />
             Enregistrer
@@ -135,35 +202,76 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <p className="text-sm text-gray-600 mb-1">Nom complet</p>
-              <p className="text-gray-900">{dossierData.patientName}</p>
+              <p className="text-gray-900">{dossierData.firstName} {dossierData.lastName}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600 mb-1">Numéro patient</p>
+              <p className="text-gray-900">{dossierData.patientNumber || '-'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600 mb-1">Âge</p>
-              <p className="text-gray-900">{dossierData.age} ans</p>
+              <p className="text-gray-900">{dossierData.age ? `${dossierData.age} ans` : '-'}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-600 mb-1">Type de cancer</p>
-              <p className="text-gray-900">{dossierData.type}</p>
+              <p className="text-sm text-gray-600 mb-1">Sexe</p>
+              <p className="text-gray-900">{dossierData.sex === 'M' ? 'Masculin' : dossierData.sex === 'F' ? 'Féminin' : '-'}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-600 mb-1">Médecin référent</p>
-              <p className="text-gray-900">{dossierData.responsible}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Date de création</p>
+              <p className="text-sm text-gray-600 mb-1">Date de naissance</p>
               <p className="text-gray-900">
-                {new Date(dossierData.createdDate).toLocaleDateString('fr-FR')}
+                {dossierData.dateOfBirth ? new Date(dossierData.dateOfBirth).toLocaleDateString('fr-FR') : '-'}
               </p>
             </div>
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Statut actuel</p>
-              <Badge className={getStatusColor(dossierData.status)}>
-                {dossierData.status}
-              </Badge>
-            </div>
+            {dossierData.meeting && (
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Statut</p>
+                <Badge className={getStatusColor(status)}>
+                  {getStatusLabel(status)}
+                </Badge>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Meeting Info if available */}
+      {dossierData.meeting ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Réunion RCP associée
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Titre</p>
+                <p className="text-gray-900">{dossierData.meeting.meetingTitle}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Médecin référent</p>
+                <p className="text-gray-900">
+                  {dossierData.meeting.doctorFirstName} {dossierData.meeting.doctorLastName}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Dernière modification</p>
+                <p className="text-gray-900">
+                  {dossierData.meeting.lastModified ? new Date(dossierData.meeting.lastModified).toLocaleDateString('fr-FR') : '-'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardContent className="p-6 flex items-center gap-4">
+            <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0" />
+            <p className="text-orange-700">Aucune réunion RCP associée à ce patient</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="imagerie" className="space-y-4">
@@ -180,12 +288,9 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
             <Edit className="w-4 h-4 mr-2" />
             Notes
           </TabsTrigger>
-          <TabsTrigger value="historique">
-            <History className="w-4 h-4 mr-2" />
-            Historique
-          </TabsTrigger>
         </TabsList>
 
+        {/* Imagerie Tab */}
         <TabsContent value="imagerie" className="space-y-4">
           <Card>
             <CardHeader>
@@ -198,39 +303,17 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {images.map((image, index) => (
-                  <div 
-                    key={index} 
-                    className="relative group bg-gray-100 rounded-lg overflow-hidden aspect-square cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
-                    onClick={() => setShowImageAnnotator(true)}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center">
-                      <ImageIcon className="w-12 h-12 text-gray-500" />
-                    </div>
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="secondary">
-                          <Maximize2 className="w-4 h-4 mr-1" />
-                          Visualiser
-                        </Button>
-                        <Button size="sm" variant="secondary">
-                          <Pencil className="w-4 h-4 mr-1" />
-                          Annoter
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-                      <p className="text-white text-sm">{image.name}</p>
-                      <p className="text-white/70 text-xs mt-1">{image.type}</p>
-                    </div>
-                  </div>
-                ))}
+              {/* ✅ Interface VIDE si pas d'images */}
+              <div className="text-center py-12">
+                <ImageIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">Aucune image disponible pour le moment</p>
+                <p className="text-sm text-gray-400 mt-2">Les images DICOM seront affichées ici une fois téléchargées</p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Documents Tab */}
         <TabsContent value="documents" className="space-y-4">
           <Card>
             <CardHeader>
@@ -243,31 +326,17 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {documents.map((doc, index) => (
-                  <div 
-                    key={index}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                        <FileText className="w-5 h-5 text-red-600" />
-                      </div>
-                      <div>
-                        <p className="text-gray-900">{doc.name}</p>
-                        <p className="text-sm text-gray-600">{doc.size} • {new Date(doc.date).toLocaleDateString('fr-FR')}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      <Download className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
+              {/* ✅ Interface VIDE si pas de documents */}
+              <div className="text-center py-12">
+                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">Aucun document disponible pour le moment</p>
+                <p className="text-sm text-gray-400 mt-2">Les documents seront affichés ici une fois téléchargés</p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Notes Tab */}
         <TabsContent value="notes" className="space-y-4">
           <Card>
             <CardHeader>
@@ -285,33 +354,6 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
                   <Save className="w-4 h-4 mr-2" />
                   Enregistrer les notes
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="historique" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <History className="w-5 h-5" />
-                Historique des modifications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {history.map((item, index) => (
-                  <div key={index} className="flex gap-4">
-                    <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
-                    <div className="flex-1 pb-4 border-b border-gray-200 last:border-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-gray-900">{item.action}</p>
-                        <p className="text-sm text-gray-500">{item.date}</p>
-                      </div>
-                      <p className="text-sm text-gray-600">Par {item.user}</p>
-                    </div>
-                  </div>
-                ))}
               </div>
             </CardContent>
           </Card>

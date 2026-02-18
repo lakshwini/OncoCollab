@@ -22,7 +22,12 @@ export class AuthService {
             throw new UnauthorizedException('Access Denied: Invalid password');
         }
 
-        const payload = { sub: doctor.doctorID, email: doctor.email, role: doctor.role?.roleName };
+        const payload = { 
+            sub: doctor.doctorID, 
+            doctorId: doctor.doctorID,  // ✅ Inclure doctorId explicitement
+            email: doctor.email, 
+            role: doctor.role?.roleName 
+        };
         const token = this.jwtService.sign(payload);
 
         return { doctor, token };

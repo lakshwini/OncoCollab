@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Page } from '../App';
-import { Search, Plus, Trash2, Eye, Filter } from 'lucide-react';
+import { Search, Plus, Eye, Filter, Loader, AlertCircle, FolderOpen } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -20,6 +20,19 @@ import {
   SelectValue,
 } from './ui/select';
 import { useLanguage } from '../i18n';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
+
+interface PatientData {
+  patientId: string;
+  firstName: string;
+  lastName: string;
+  patientNumber: string;
+  type: string;
+  status: string;
+  dateModification: string;
+  doctorFirstName: string;
+  doctorLastName: string;
+}
 
 interface PatientDossiersProps {
   onNavigate: (page: Page, dossierId?: string) => void;
@@ -29,87 +42,92 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
   const { language, t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [patients, setPatients] = useState<PatientData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const dossiers = [
-    {
-      id: 'D001',
-      patientName: 'Martin Pierre',
-      patientId: 'P-2025-001',
-      type: language === 'fr' ? 'Cancer du poumon' : 'Lung cancer',
-      statusKey: 'inProgress',
-      lastModified: '2025-11-10',
-      responsible: 'Dr. Dubois',
-    },
-    {
-      id: 'D002',
-      patientName: 'Dupont Marie',
-      patientId: 'P-2025-002',
-      type: language === 'fr' ? 'Cancer colorectal' : 'Colorectal cancer',
-      statusKey: 'pending',
-      lastModified: '2025-11-09',
-      responsible: 'Dr. Martin',
-    },
-    {
-      id: 'D003',
-      patientName: 'Bernard Louis',
-      patientId: 'P-2025-003',
-      type: language === 'fr' ? 'Cancer du sein' : 'Breast cancer',
-      statusKey: 'validated',
-      lastModified: '2025-11-08',
-      responsible: 'Dr. Laurent',
-    },
-    {
-      id: 'D004',
-      patientName: 'Leroy Sophie',
-      patientId: 'P-2025-004',
-      type: language === 'fr' ? 'Cancer de la prostate' : 'Prostate cancer',
-      statusKey: 'inProgress',
-      lastModified: '2025-11-07',
-      responsible: 'Dr. Dubois',
-    },
-    {
-      id: 'D005',
-      patientName: 'Moreau Jean',
-      patientId: 'P-2025-005',
-      type: language === 'fr' ? 'Lymphome' : 'Lymphoma',
-      statusKey: 'pending',
-      lastModified: '2025-11-06',
-      responsible: 'Dr. Chen',
-    },
-  ];
+  // Charger les patients depuis l'API
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-  const getStatusLabel = (statusKey: string) => {
-    const statusMap: Record<string, string> = {
-      validated: t.statuses.validated,
-      inProgress: t.statuses.inProgress,
-      pending: t.statuses.pending,
+        const token = localStorage.getItem('onco_collab_token');
+        if (!token) {
+          setError('Non authentifié');
+          return;
+        }
+
+        const headers = createAuthHeaders(token);
+        const res = await fetch(createApiUrl('/patients/prise-en-charge/table'), { headers });
+
+        if (res.ok) {
+          const data = await res.json();
+          setPatients(data || []);
+        } else if (res.status === 404 || res.status === 500) {
+          // Endpoint pas encore disponible, afficher message vide gracieux
+          setPatients([]);
+        } else {
+          throw new Error('Erreur lors du chargement des données');
+        }
+      } catch (err) {
+        console.error('Error loading patients:', err);
+        setError('Erreur lors du chargement des données');
+      } finally {
+        setLoading(false);
+      }
     };
-    return statusMap[statusKey] || statusKey;
+
+    fetchPatients();
+  }, []);
+
+  const getStatusLabel = (status: string) => {
+    const statusMap: Record<string, string> = {
+      'en_cours': 'En cours',
+      'en_attente': 'En attente',
+      'valide': 'Validé',
+    };
+    return statusMap[status] || status;
   };
 
-  const getStatusColor = (statusKey: string) => {
-    switch (statusKey) {
-      case 'validated':
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'valide':
         return 'bg-green-100 text-green-700';
-      case 'inProgress':
+      case 'en_cours':
         return 'bg-blue-100 text-blue-700';
-      case 'pending':
+      case 'en_attente':
         return 'bg-orange-100 text-orange-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
   };
 
-  const filteredDossiers = dossiers.filter((dossier) => {
+  const filteredPatients = patients.filter((patient) => {
     const matchesSearch =
-      dossier.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dossier.patientId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dossier.type.toLowerCase().includes(searchQuery.toLowerCase());
+      patient.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      patient.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      patient.patientNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      patient.type.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesStatus = statusFilter === 'all' || dossier.statusKey === statusFilter;
+    const matchesStatus = statusFilter === 'all' || patient.status === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
+
+  const uniqueStatuses = Array.from(new Set(patients.map(p => p.status)));
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Loader className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" />
+          <p className="text-gray-600">Chargement des patients...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -124,6 +142,14 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
           {t.patientDossiers.createDossier}
         </Button>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-4">
@@ -144,82 +170,82 @@ export function PatientDossiers({ onNavigate }: PatientDossiersProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t.patientDossiers.allStatuses}</SelectItem>
-            <SelectItem value="pending">{t.statuses.pending}</SelectItem>
-            <SelectItem value="inProgress">{t.statuses.inProgress}</SelectItem>
-            <SelectItem value="validated">{t.statuses.validated}</SelectItem>
+            {uniqueStatuses.map(status => (
+              <SelectItem key={status} value={status}>{getStatusLabel(status)}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t.patientDossiers.patientName}</TableHead>
-              <TableHead>{t.patientDossiers.patientId}</TableHead>
-              <TableHead>{t.common.type}</TableHead>
-              <TableHead>{t.common.status}</TableHead>
-              <TableHead>{t.patientDossiers.lastModification}</TableHead>
-              <TableHead>{t.patientDossiers.responsible}</TableHead>
-              <TableHead className="text-right">{t.common.actions}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredDossiers.map((dossier) => (
-              <TableRow key={dossier.id} className="hover:bg-gray-50">
-                <TableCell>{dossier.patientName}</TableCell>
-                <TableCell className="text-gray-600">{dossier.patientId}</TableCell>
-                <TableCell>{dossier.type}</TableCell>
-                <TableCell>
-                  <Badge className={getStatusColor(dossier.statusKey)}>
-                    {getStatusLabel(dossier.statusKey)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-gray-600">
-                  {new Date(dossier.lastModified).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US')}
-                </TableCell>
-                <TableCell className="text-gray-600">{dossier.responsible}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onNavigate('dossier-detail', dossier.id)}
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      {filteredDossiers.length === 0 && (
-        <div className="text-center py-12">
+      {filteredPatients.length === 0 && !error ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-600">{t.patientDossiers.noDossiersFound}</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg border border-gray-200">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t.patientDossiers.patientName}</TableHead>
+                <TableHead>{t.patientDossiers.patientId}</TableHead>
+                <TableHead>{t.common.type}</TableHead>
+                <TableHead>{t.common.status}</TableHead>
+                <TableHead>{t.patientDossiers.lastModification}</TableHead>
+                <TableHead>{t.patientDossiers.responsible}</TableHead>
+                <TableHead className="text-right">{t.common.actions}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredPatients.map((patient) => (
+                <TableRow key={patient.patientId} className="hover:bg-gray-50">
+                  <TableCell>{patient.firstName} {patient.lastName}</TableCell>
+                  <TableCell className="text-gray-600">{patient.patientNumber}</TableCell>
+                  <TableCell>{patient.type}</TableCell>
+                  <TableCell>
+                    <Badge className={getStatusColor(patient.status)}>
+                      {getStatusLabel(patient.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-gray-600">
+                    {new Date(patient.dateModification).toLocaleDateString('fr-FR')}
+                  </TableCell>
+                  <TableCell className="text-gray-600">{patient.doctorFirstName} {patient.doctorLastName}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onNavigate('dossier-detail', patient.patientId)}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
       {/* Stats */}
-      <div className="flex items-center gap-6 text-sm text-gray-600">
-        <span>{filteredDossiers.length} {t.patientDossiers.dossiersDisplayed}</span>
-        <span>•</span>
-        <span>{dossiers.filter(d => d.statusKey === 'pending').length} {t.statuses.pending.toLowerCase()}</span>
-        <span>•</span>
-        <span>{dossiers.filter(d => d.statusKey === 'inProgress').length} {t.statuses.inProgress.toLowerCase()}</span>
-        <span>•</span>
-        <span>{dossiers.filter(d => d.statusKey === 'validated').length} {t.statuses.validated.toLowerCase()}</span>
-      </div>
+      {filteredPatients.length > 0 && (
+        <div className="flex items-center gap-6 text-sm text-gray-600">
+          <span>{filteredPatients.length} {t.patientDossiers.dossiersDisplayed}</span>
+          {uniqueStatuses.map((status, idx) => {
+            const count = patients.filter(p => p.status === status).length;
+            return (
+              <span key={status}>
+                {idx > 0 && <span>•</span>}
+                {count} {getStatusLabel(status).toLowerCase()}
+                {idx < uniqueStatuses.length - 1 && <span> • </span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

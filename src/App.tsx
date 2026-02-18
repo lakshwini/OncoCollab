@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { LoginPage } from './components/LoginPage';
@@ -15,12 +15,58 @@ import { HelpGuide } from './components/HelpGuide';
 import { Settings } from './components/Settings';
 import { MeetingPrerequisitesCheck } from './components/MeetingPrerequisitesCheck';
 import { MyPrerequisites } from './components/MyPrerequisites';
+import { ScheduleRCPModal } from './components/ScheduleRCPModal';
+import { FloatingVideoWindow } from './components/FloatingVideoWindow';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { authService } from './services/auth.service';
 import { LanguageProvider } from './i18n';
+import { WebRTCProvider, useWebRTC } from './contexts/WebRTCContext';
+import { VideoProvider, useVideo } from './contexts/VideoContext';
 
 export type UserRole = 'radiologue' | 'oncologue' | 'chirurgien' | 'pathologiste' | 'infirmier' | 'coordinateur' | 'pharmacien' | 'admin';
+
+/**
+ * Fenêtre vidéo flottante qui apparaît quand on navigue hors de la page vidéo
+ * tout en restant connecté à une room WebRTC
+ * ⭐ Utilise useMemo pour éviter les remount inutiles
+ */
+function FloatingVideoOverlay({ currentPage, meetingTitle }: { currentPage: string; meetingTitle: string }) {
+  const { currentRoomId, participants, leaveRoom } = useWebRTC();
+  const { stream, isMicOn, isCameraOn, setMicOn, setCameraOn } = useVideo();
+
+  // N'afficher que si on est connecté à une room ET pas sur la page vidéo
+  if (!currentRoomId || currentPage === 'video') {
+    return null;
+  }
+
+  // Collecter les remote streams avec useMemo pour éviter les recréations inutiles
+  const remoteStreams = useMemo(() => {
+    const map = new Map<string, MediaStream>();
+    participants.forEach((p, socketId) => {
+      if (p.stream) {
+        map.set(socketId, p.stream);
+      }
+    });
+    return map;
+  }, [participants]);
+
+  console.log('[App] 🪟 FloatingVideoOverlay actif - room=' + currentRoomId + ', remotes=' + remoteStreams.size + ', page=' + currentPage);
+
+  return (
+    <FloatingVideoWindow
+      meetingId={currentRoomId}
+      meetingTitle={meetingTitle}
+      localStream={stream}
+      remoteStreams={remoteStreams}
+      isVideoEnabled={isCameraOn}
+      isAudioEnabled={isMicOn}
+      onToggleVideo={() => setCameraOn(!isCameraOn)}
+      onToggleAudio={() => setMicOn(!isMicOn)}
+      onClose={leaveRoom}
+    />
+  );
+}
 
 export interface User {
   id: string;
@@ -38,6 +84,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
   const [selectedMeetingInfo, setSelectedMeetingInfo] = useState<{
+    meetingId?: string;
     title: string;
     date: string;
     time: string;
@@ -47,32 +94,38 @@ export default function App() {
   const [lastActivityTime, setLastActivityTime] = useState(Date.now());
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 
-  // Restaurer la session au chargement de la page
+  // Restaurer la session au chargement de la page (async pour Supabase auto-refresh)
   useEffect(() => {
-    const session = authService.getSession();
-    if (session && authService.isSessionValid()) {
-      const { user, token } = session;
+    authService.restoreSession().then((restored) => {
+      if (restored) {
+        const { user, token } = restored;
 
-      // Transformer le user du service vers le format App.tsx
-      const appUser: User = {
-        id: user.id,
-        name: `${user.prenom} ${user.nom}`,
-        email: user.email,
-        role: user.role.toLowerCase() as UserRole,
-      };
+        const appUser: User = {
+          id: user.id,
+          name: `${user.prenom} ${user.nom}`,
+          email: user.email,
+          role: user.role.toLowerCase() as UserRole,
+        };
 
-      setCurrentUser(appUser);
-      setAuthToken(token);
-      setIsAuthenticated(true);
-      setLastActivityTime(authService.getLastActivity());
+        setCurrentUser(appUser);
+        setAuthToken(token);
+        setIsAuthenticated(true);
+        setLastActivityTime(authService.getLastActivity());
 
-      toast.success(`Session restaurée - Bienvenue, ${appUser.name}!`);
-    } else if (session) {
-      // Session expirée
+        toast.success(`Session restaurée - Bienvenue, ${appUser.name}!`);
+      } else {
+        // Vérifier si une session existait mais a expiré
+        const oldSession = authService.getSession();
+        if (oldSession) {
+          authService.logout();
+          toast.error('Session expirée. Veuillez vous reconnecter.');
+        }
+      }
+    }).catch(() => {
       authService.logout();
-      toast.error('Session expirée. Veuillez vous reconnecter.');
-    }
+    });
   }, []);
 
   // Session management - 30 min auto logout
@@ -124,9 +177,13 @@ export default function App() {
     });
   };
 
-  const handleLogout = () => {
-    // Nettoyer la session avec le service d'authentification
-    authService.logout();
+  const handleLogout = async () => {
+    const source = authService.getAuthSource();
+    if (source === 'supabase') {
+      await authService.logoutSupabase();
+    } else {
+      authService.logout();
+    }
     setCurrentUser(null);
     setIsAuthenticated(false);
     setAuthToken(null);
@@ -142,7 +199,16 @@ export default function App() {
     }
   };
 
-  const navigateToPrerequisites = (meetingInfo: { title: string; date: string; time: string; roomId?: string; patientName?: string }) => {
+  const navigateFromPrerequisites = (page: Page) => {
+    if (page === 'video' && selectedMeetingInfo?.meetingId && !selectedMeetingInfo.roomId) {
+      setSelectedMeetingInfo((prev) =>
+        prev ? { ...prev, roomId: prev.meetingId } : prev
+      );
+    }
+    setCurrentPage(page);
+  };
+
+  const navigateToPrerequisites = (meetingInfo: { meetingId?: string; title: string; date: string; time: string; roomId?: string; patientName?: string }) => {
     setSelectedMeetingInfo(meetingInfo);
     setCurrentPage('prerequisites');
   };
@@ -158,60 +224,95 @@ export default function App() {
     setCurrentPage('video');
   };
 
-  if (!isAuthenticated) {
-    return (
-      <LanguageProvider>
-        <LoginPage onLogin={handleLogin} />
-        <Toaster />
-      </LanguageProvider>
-    );
-  }
-
+  // ⭐ UN SEUL PROVIDER GLOBAL pour toute l'application
+  // Cela garantit que le socket et les PeerConnections persistent
   return (
-    <LanguageProvider>
-      {/* Video Conference - Plein écran exclusif, pas de sidebar/header */}
-      {currentPage === 'video' ? (
-        <VideoConferenceWrapper
-          onClose={() => navigateTo('reunions')}
-          meetingTitle={selectedMeetingInfo?.title || 'RCP'}
-          patientName={selectedMeetingInfo?.patientName}
-          roomId={selectedMeetingInfo?.roomId}
-          authToken={authToken}
-          currentUser={currentUser}
-        />
-      ) : (
-        <div className="flex h-screen bg-[#0f1419]">
-          <Sidebar currentPage={currentPage} onNavigate={navigateTo} userRole={currentUser!.role} />
-
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <Header user={currentUser!} onLogout={handleLogout} />
-
-            <main className="flex-1 overflow-y-auto">
-              {currentPage === 'dashboard' && <DashboardAdvanced onNavigate={navigateTo} />}
-              {currentPage === 'dossiers' && <PatientDossiers onNavigate={navigateTo} />}
-              {currentPage === 'dossier-detail' && <DossierDetail dossierId={selectedDossierId!} onBack={() => navigateTo('dossiers')} />}
-              {currentPage === 'reunions' && <RCPMeetings onNavigate={navigateTo} onNavigateToPrerequisites={navigateToPrerequisites} onNavigateToVideo={navigateToVideo} currentUser={currentUser} />}
-              {currentPage === 'prerequisites' && selectedMeetingInfo && (
-                <MeetingPrerequisitesCheck
-                  onNavigate={navigateTo}
-                  userRole={currentUser!.role}
-                  meetingTitle={selectedMeetingInfo.title}
-                  meetingDate={selectedMeetingInfo.date}
-                  meetingTime={selectedMeetingInfo.time}
+    <VideoProvider>
+      <WebRTCProvider>
+        <LanguageProvider>
+          {!isAuthenticated ? (
+            // Page de login
+            <>
+              <LoginPage onLogin={handleLogin} />
+              <Toaster />
+            </>
+          ) : (
+            // Application authentifiée
+            <>
+              {/* Video Conference - Plein écran exclusif, pas de sidebar/header */}
+              {currentPage === 'video' ? (
+                <VideoConferenceWrapper
+                  onClose={() => navigateTo('reunions')}
+                  meetingTitle={selectedMeetingInfo?.title || 'RCP'}
+                  patientName={selectedMeetingInfo?.patientName}
+                  roomId={selectedMeetingInfo?.roomId}
+                  authToken={authToken}
+                  currentUser={currentUser}
                 />
+              ) : (
+                <div className="flex h-screen bg-[#0f1419]">
+                  <Sidebar currentPage={currentPage} onNavigate={navigateTo} userRole={currentUser!.role} />
+
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <Header user={currentUser!} onLogout={handleLogout} />
+
+                    <main className="flex-1 overflow-y-auto">
+                      {currentPage === 'dashboard' && <DashboardAdvanced onNavigate={navigateTo} />}
+                      {currentPage === 'dossiers' && <PatientDossiers onNavigate={navigateTo} />}
+                      {currentPage === 'dossier-detail' && <DossierDetail dossierId={selectedDossierId!} onBack={() => navigateTo('dossiers')} />}
+                      {currentPage === 'reunions' && <RCPMeetings onNavigate={navigateTo} onNavigateToPrerequisites={navigateToPrerequisites} onNavigateToVideo={navigateToVideo} currentUser={currentUser} authToken={authToken} />}
+                      {currentPage === 'prerequisites' && selectedMeetingInfo && (
+                        <MeetingPrerequisitesCheck
+                          onNavigate={navigateFromPrerequisites}
+                          userRole={currentUser!.role}
+                          meetingId={selectedMeetingInfo.meetingId}
+                          meetingTitle={selectedMeetingInfo.title}
+                          meetingDate={selectedMeetingInfo.date}
+                          meetingTime={selectedMeetingInfo.time}
+                        />
+                      )}
+                      {currentPage === 'workspace' && <WorkspaceDocuments userName={currentUser!.name} userRole={currentUser!.role} />}
+                      {currentPage === 'messagerie' && <Messaging />}
+                      {currentPage === 'agentia' && <AgentIA onNavigate={navigateTo} />}
+                      {currentPage === 'calendrier' && <CalendarAdvanced onNavigate={navigateTo} currentUser={currentUser!} authToken={authToken} />}
+                      {currentPage === 'aide' && <HelpGuide />}
+                      {currentPage === 'parametres' && <Settings user={currentUser!} />}
+                      {currentPage === 'mes-prerequis' && (
+                        <MyPrerequisites
+                          userRole={currentUser!.role}
+                          onNavigate={navigateTo}
+                          onOpenScheduleModal={() => setIsScheduleModalOpen(true)}
+                        />
+                      )}
+                    </main>
+                  </div>
+
+                  {/* Schedule RCP Modal */}
+                  <ScheduleRCPModal
+                    isOpen={isScheduleModalOpen}
+                    onClose={() => setIsScheduleModalOpen(false)}
+                    currentUserId={currentUser!.id}
+                    currentUserName={currentUser!.name}
+                    authToken={authToken}
+                    onSuccess={() => {
+                      // Refresh the meetings list after creating a new one
+                      toast.success('Réunion créée avec succès!');
+                    }}
+                  />
+
+                  <Toaster />
+                </div>
               )}
-              {currentPage === 'workspace' && <WorkspaceDocuments userName={currentUser!.name} userRole={currentUser!.role} />}
-              {currentPage === 'messagerie' && <Messaging />}
-              {currentPage === 'agentia' && <AgentIA onNavigate={navigateTo} />}
-              {currentPage === 'calendrier' && <CalendarAdvanced onNavigate={navigateTo} />}
-              {currentPage === 'aide' && <HelpGuide />}
-              {currentPage === 'parametres' && <Settings user={currentUser!} />}
-              {currentPage === 'mes-prerequis' && <MyPrerequisites userRole={currentUser!.role} onNavigate={navigateTo} />}
-            </main>
-          </div>
-          <Toaster />
-        </div>
-      )}
-    </LanguageProvider>
+
+              {/* Fenêtre vidéo flottante - visible quand connecté à une room mais pas sur la page vidéo */}
+              <FloatingVideoOverlay
+                currentPage={currentPage}
+                meetingTitle={selectedMeetingInfo?.title || 'RCP'}
+              />
+            </>
+          )}
+        </LanguageProvider>
+      </WebRTCProvider>
+    </VideoProvider>
   );
 }

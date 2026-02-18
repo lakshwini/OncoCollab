@@ -1,61 +1,72 @@
+import { useEffect, useState } from 'react';
 import { Page } from '../App';
-import { Calendar, FolderOpen, Video, Clock, Users, FileText, TrendingUp, Image } from 'lucide-react';
+import { Calendar, FolderOpen, Video, Clock, Users, FileText, TrendingUp, Image, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface DashboardProps {
   onNavigate: (page: Page, dossierId?: string) => void;
 }
 
 export function Dashboard({ onNavigate }: DashboardProps) {
-  const upcomingMeetings = [
-    {
-      id: '1',
-      title: 'RCP Oncologie Thoracique',
-      date: '2025-11-11',
-      time: '10:00',
-      participants: ['Dr. Martin', 'Dr. Dubois', 'Dr. Laurent'],
-    },
-    {
-      id: '2',
-      title: 'RCP Cancers Digestifs',
-      date: '2025-11-13',
-      time: '14:30',
-      participants: ['Dr. Chen', 'Dr. Dubois', 'Dr. Petit'],
-    },
-  ];
+  // State for data
+  const [dossiers, setDossiers] = useState<any[]>([]);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [stats, setStats] = useState({ activeDossiers: 0, statusStats: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const recentDossiers = [
-    {
-      id: 'D001',
-      patientName: 'Martin P.',
-      type: 'Cancer du poumon',
-      status: 'En cours',
-      lastModified: '2025-11-10',
-    },
-    {
-      id: 'D002',
-      patientName: 'Dupont M.',
-      type: 'Cancer colorectal',
-      status: 'En attente',
-      lastModified: '2025-11-09',
-    },
-    {
-      id: 'D003',
-      patientName: 'Bernard L.',
-      type: 'Cancer du sein',
-      status: 'Validé',
-      lastModified: '2025-11-08',
-    },
-  ];
+  // Load data from backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const token = localStorage.getItem('onco_collab_token');
+        if (!token) {
+          setError('Non authentifié');
+          return;
+        }
 
-  const stats = [
-    { label: 'Dossiers actifs', value: '24', icon: FolderOpen, color: 'text-blue-600', bg: 'bg-blue-100' },
-    { label: 'RCP ce mois', value: '12', icon: Video, color: 'text-green-600', bg: 'bg-green-100' },
-    { label: 'En attente', value: '8', icon: Clock, color: 'text-orange-600', bg: 'bg-orange-100' },
-    { label: 'Participants', value: '18', icon: Users, color: 'text-purple-600', bg: 'bg-purple-100' },
-  ];
+        const headers = createAuthHeaders(token);
+
+        // 1️⃣ Fetch dossiers
+        const dossiersRes = await fetch(createApiUrl('/patients/dossiers/list'), { headers });
+        if (dossiersRes.ok) {
+          const dossiersData = await dossiersRes.json();
+          // Remove duplicates (keep most recent)
+          const uniqueDossiers = Array.from(
+            new Map(dossiersData.map((d: any) => [d.patientId, d])).values()
+          ).slice(0, 5); // Show last 5
+          setDossiers(uniqueDossiers);
+        }
+
+        // 2️⃣ Fetch meetings
+        const meetingsRes = await fetch(createApiUrl('/meetings'), { headers });
+        if (meetingsRes.ok) {
+          const meetingsData = await meetingsRes.json();
+          setMeetings(meetingsData.slice(0, 2)); // Show next 2
+        }
+
+        // 3️⃣ Fetch stats
+        const statsRes = await fetch(createApiUrl('/patients/stats/dashboard'), { headers });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setStats(statsData);
+        }
+      } catch (err) {
+        console.error('Error loading dashboard data:', err);
+        setError('Erreur lors du chargement des données');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const quickActions = [
     { label: 'Créer un dossier', icon: FolderOpen, action: () => onNavigate('dossiers') },
@@ -65,16 +76,40 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Validé':
+      case 'finished':
         return 'bg-green-100 text-green-700';
-      case 'En cours':
+      case 'live':
+      case 'scheduled':
         return 'bg-blue-100 text-blue-700';
-      case 'En attente':
+      case 'draft':
+      case 'postponed':
         return 'bg-orange-100 text-orange-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
   };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      'scheduled': 'Programmée',
+      'draft': 'Brouillon',
+      'live': 'En direct',
+      'postponed': 'Reportée',
+      'finished': 'Terminée',
+    };
+    return labels[status] || status;
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="text-gray-600 mt-4">Chargement des données...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -84,26 +119,75 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <p className="text-gray-600">Vue d'ensemble de votre activité RCP</p>
       </div>
 
-      {/* Stats Grid */}
+      {/* Error Alert */}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-6 flex items-center gap-4">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <p className="text-red-700">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stats Grid - Dynamic */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={stat.label}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
-                    <p className="text-gray-900">{stat.value}</p>
-                  </div>
-                  <div className={`w-12 h-12 rounded-lg ${stat.bg} flex items-center justify-center`}>
-                    <Icon className={`w-6 h-6 ${stat.color}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Dossiers actifs</p>
+                <p className="text-gray-900 text-2xl font-semibold">{stats.activeDossiers}</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                <FolderOpen className="w-6 h-6 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">RCP programmées</p>
+                <p className="text-gray-900 text-2xl font-semibold">{meetings.length}</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
+                <Video className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">En attente</p>
+                <p className="text-gray-900 text-2xl font-semibold">
+                  {stats.statusStats.find((s: any) => s.status === 'draft')?.count || 0}
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center">
+                <Clock className="w-6 h-6 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Participants totaux</p>
+                <p className="text-gray-900 text-2xl font-semibold">{meetings.length * 3}</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
+                <Users className="w-6 h-6 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -116,34 +200,41 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {upcomingMeetings.map((meeting) => (
-              <div key={meeting.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="text-gray-900">{meeting.title}</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {new Date(meeting.date).toLocaleDateString('fr-FR', { 
-                        weekday: 'long', 
-                        day: 'numeric', 
-                        month: 'long' 
-                      })} à {meeting.time}
-                    </p>
-                  </div>
-                  <Badge variant="outline">{meeting.participants.length} participants</Badge>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Users className="w-4 h-4" />
-                  <span>{meeting.participants.join(', ')}</span>
-                </div>
+            {meetings.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">Aucune réunion programmée</p>
               </div>
-            ))}
-            <Button 
-              variant="outline" 
-              className="w-full"
-              onClick={() => onNavigate('reunions')}
-            >
-              Voir toutes les réunions
-            </Button>
+            ) : (
+              <>
+                {meetings.map((meeting) => (
+                  <div key={meeting.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h4 className="text-gray-900">{meeting.title}</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {meeting.startTime ? new Date(meeting.startTime).toLocaleDateString('fr-FR', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                          }) : 'Date non définie'}
+                        </p>
+                      </div>
+                      <Badge className={getStatusColor(meeting.status)}>
+                        {getStatusLabel(meeting.status)}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onNavigate('reunions')}
+                >
+                  Voir toutes les réunions
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -156,33 +247,48 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {recentDossiers.map((dossier) => (
-              <div 
-                key={dossier.id} 
-                className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors"
-                onClick={() => onNavigate('dossier-detail', dossier.id)}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="text-gray-900">{dossier.patientName}</h4>
-                    <p className="text-sm text-gray-600 mt-1">{dossier.type}</p>
-                  </div>
-                  <Badge className={getStatusColor(dossier.status)}>
-                    {dossier.status}
-                  </Badge>
-                </div>
-                <p className="text-xs text-gray-500">
-                  Modifié le {new Date(dossier.lastModified).toLocaleDateString('fr-FR')}
-                </p>
+            {dossiers.length === 0 ? (
+              <div className="text-center py-8">
+                <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">Aucun dossier disponible</p>
               </div>
-            ))}
-            <Button 
-              variant="outline" 
-              className="w-full"
-              onClick={() => onNavigate('dossiers')}
-            >
-              Voir tous les dossiers
-            </Button>
+            ) : (
+              <>
+                {dossiers.map((dossier) => (
+                  <div
+                    key={dossier.patientId}
+                    className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors"
+                    onClick={() => onNavigate('dossier-detail', dossier.patientId)}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h4 className="text-gray-900">
+                          {dossier.firstName} {dossier.lastName}
+                        </h4>
+                        <p className="text-sm text-gray-600 mt-1">{dossier.patientNumber}</p>
+                      </div>
+                      {dossier.meetingStatus && (
+                        <Badge className={getStatusColor(dossier.meetingStatus)}>
+                          {getStatusLabel(dossier.meetingStatus)}
+                        </Badge>
+                      )}
+                    </div>
+                    {dossier.lastModified && (
+                      <p className="text-xs text-gray-500">
+                        Modifié le {new Date(dossier.lastModified).toLocaleDateString('fr-FR')}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onNavigate('dossiers')}
+                >
+                  Voir tous les dossiers
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -224,8 +330,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <p className="text-sm text-gray-700 mb-3">
                 AgentIA vous propose de planifier la prochaine RCP selon les disponibilités des participants.
               </p>
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 className="bg-blue-600 hover:bg-blue-700"
                 onClick={() => onNavigate('agentia')}
               >

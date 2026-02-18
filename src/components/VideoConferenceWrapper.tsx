@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { PreMeetingSetup, MeetingSettings } from './PreMeetingSetup';
 import { VideoConferenceAdvanced } from './VideoConferenceAdvanced';
 import { User } from '../App';
-import { API_CONFIG, createApiUrl, createAuthHeaders } from '../config/api.config';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface VideoConferenceWrapperProps {
   onClose: () => void;
@@ -17,7 +17,7 @@ interface VideoConferenceWrapperProps {
 export function VideoConferenceWrapper({
   onClose,
   patientName,
-  meetingTitle = "RCP",
+  meetingTitle = 'RCP',
   authToken,
   roomId,
   serverUrl,
@@ -34,10 +34,10 @@ export function VideoConferenceWrapper({
     ? currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()
     : 'DR';
 
-  // Générer un roomId basé sur le titre de la réunion si non fourni
+  // Generer un roomId base sur le titre de la reunion si non fourni
   const effectiveRoomId = roomId || meetingTitle.replace(/\s+/g, '-').toLowerCase();
 
-  // Créer ou récupérer la room dans la base de données
+  // Creer ou recuperer la room dans la base de donnees
   const ensureRoomExists = useCallback(async () => {
     if (!effectiveRoomId) return;
 
@@ -54,15 +54,14 @@ export function VideoConferenceWrapper({
 
       if (response.ok) {
         const room = await response.json();
-        console.log('✅ Room créée/trouvée dans la DB:', room);
+        console.log('Room creee/trouvee dans la DB:', room);
         setDbRoomId(room.roomId);
       } else {
-        console.warn('⚠️ Impossible de créer la room en DB, utilisation du roomId local');
+        console.warn('Impossible de creer la room en DB, utilisation du roomId local');
         setDbRoomId(effectiveRoomId);
       }
     } catch (error) {
-      console.warn('⚠️ Erreur lors de la création de la room:', error);
-      // En cas d'erreur, on continue avec le roomId local
+      console.warn('Erreur lors de la creation de la room:', error);
       setDbRoomId(effectiveRoomId);
     } finally {
       setIsCreatingRoom(false);
@@ -70,7 +69,6 @@ export function VideoConferenceWrapper({
   }, [effectiveRoomId, meetingTitle, authToken]);
 
   const handleJoinMeeting = useCallback(async (settings: MeetingSettings) => {
-    // S'assurer que la room existe dans la DB avant de rejoindre
     await ensureRoomExists();
     setMeetingSettings(settings);
     setShowPreMeeting(false);

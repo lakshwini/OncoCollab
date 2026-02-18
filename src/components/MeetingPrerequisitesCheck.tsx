@@ -1,209 +1,160 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Page, UserRole } from '../App';
-import { CheckCircle2, Circle, Video, ArrowLeft, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Circle, Video, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
-
-interface Prerequisite {
-  id: string;
-  title: string;
-  description: string;
-  required: boolean;
-}
+import { prerequisitesService } from '../services/prerequisites.service';
+import { MeetingPrerequisites, PrerequisiteItem } from '../types/prerequisites';
+import { authService } from '../services/auth.service';
 
 interface MeetingPrerequisitesCheckProps {
   onNavigate: (page: Page) => void;
   userRole: UserRole;
+  meetingId?: string; // ID de la réunion
   meetingTitle: string;
   meetingDate: string;
   meetingTime: string;
 }
 
-const prerequisitesByRole: Record<UserRole, Prerequisite[]> = {
-  radiologue: [
-    {
-      id: 'rad1',
-      title: 'Consulter les dossiers patients',
-      description: 'Vérifier tous les dossiers patients à discuter',
-      required: true,
-    },
-    {
-      id: 'rad2',
-      title: 'Analyser les imageries',
-      description: 'Examiner toutes les imageries (Scanner, IRM, TEP-scan)',
-      required: true,
-    },
-    {
-      id: 'rad3',
-      title: 'Préparer les annotations',
-      description: 'Annoter les images clés et préparer les mesures',
-      required: true,
-    },
-    {
-      id: 'rad4',
-      title: 'Vérifier le matériel de partage',
-      description: 'Tester le partage d\'écran et la qualité vidéo',
-      required: false,
-    },
-  ],
-  oncologue: [
-    {
-      id: 'onc1',
-      title: 'Consulter les dossiers patients',
-      description: 'Vérifier tous les dossiers patients à discuter',
-      required: true,
-    },
-    {
-      id: 'onc2',
-      title: 'Analyser les bilans biologiques',
-      description: 'Examiner les résultats des analyses sanguines et marqueurs',
-      required: true,
-    },
-    {
-      id: 'onc3',
-      title: 'Préparer les protocoles de traitement',
-      description: 'Définir les options thérapeutiques possibles',
-      required: true,
-    },
-    {
-      id: 'onc4',
-      title: 'Vérifier les contre-indications',
-      description: 'Consulter les comorbidités et traitements en cours',
-      required: true,
-    },
-    {
-      id: 'onc5',
-      title: 'Préparer les essais cliniques disponibles',
-      description: 'Lister les essais cliniques pertinents',
-      required: false,
-    },
-  ],
-  chirurgien: [
-    {
-      id: 'chir1',
-      title: 'Consulter les dossiers patients',
-      description: 'Vérifier tous les dossiers patients à discuter',
-      required: true,
-    },
-    {
-      id: 'chir2',
-      title: 'Évaluer la faisabilité chirurgicale',
-      description: 'Analyser les imageries pour définir l\'opérabilité',
-      required: true,
-    },
-    {
-      id: 'chir3',
-      title: 'Préparer les options opératoires',
-      description: 'Définir les techniques chirurgicales envisageables',
-      required: true,
-    },
-    {
-      id: 'chir4',
-      title: 'Évaluer les risques périopératoires',
-      description: 'Analyser l\'état général et les risques anesthésiques',
-      required: true,
-    },
-  ],
-  pathologiste: [
-    {
-      id: 'path1',
-      title: 'Consulter les dossiers patients',
-      description: 'Vérifier tous les dossiers patients à discuter',
-      required: true,
-    },
-    {
-      id: 'path2',
-      title: 'Analyser les résultats anatomopathologiques',
-      description: 'Examiner les prélèvements et les analyses histologiques',
-      required: true,
-    },
-    {
-      id: 'path3',
-      title: 'Vérifier les marqueurs immunohistochimiques',
-      description: 'Consulter les résultats des tests moléculaires',
-      required: true,
-    },
-    {
-      id: 'path4',
-      title: 'Préparer les lames microscopiques',
-      description: 'Sélectionner les lames à présenter si nécessaire',
-      required: false,
-    },
-  ],
-  admin: [
-    {
-      id: 'adm1',
-      title: 'Vérifier la liste des participants',
-      description: 'Confirmer la présence de tous les participants requis',
-      required: true,
-    },
-    {
-      id: 'adm2',
-      title: 'Préparer l\'ordre du jour',
-      description: 'Organiser la liste des patients à discuter',
-      required: true,
-    },
-    {
-      id: 'adm3',
-      title: 'Vérifier le matériel technique',
-      description: 'Tester la connexion vidéo et le matériel de projection',
-      required: true,
-    },
-  ],
-};
-
 export function MeetingPrerequisitesCheck({
   onNavigate,
-  userRole,
+  meetingId,
   meetingTitle,
   meetingDate,
   meetingTime,
 }: MeetingPrerequisitesCheckProps) {
-  const prerequisites = prerequisitesByRole[userRole] || [];
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  const [meetingData, setMeetingData] = useState<MeetingPrerequisites | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updatingItems, setUpdatingItems] = useState<Set<string>>(new Set());
 
-  const togglePrerequisite = (id: string) => {
-    setCheckedItems((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+  // Charger les prérequis de la réunion
+  useEffect(() => {
+    loadPrerequisites();
+  }, [meetingId]);
+
+  const loadPrerequisites = async () => {
+    if (!meetingId) {
+      setError('ID de réunion manquant');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await prerequisitesService.getMeetingPrerequisites(meetingId, false);
+      setMeetingData(data);
+    } catch (err) {
+      console.error('Erreur lors du chargement des prérequis:', err);
+      setError('Impossible de charger les prérequis. Veuillez réessayer.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const togglePrerequisite = async (item: PrerequisiteItem) => {
+    if (!meetingData || !meetingId) return;
+
+    const updateKey = item.key;
+    if (updatingItems.has(updateKey)) return;
+
+    try {
+      setUpdatingItems((prev) => new Set(prev).add(updateKey));
+
+      const newStatus = item.status === 'done' ? 'pending' : 'done';
+
+      const updatedMeeting = await prerequisitesService.updateMyPrerequisites(meetingId, {
+        items: [{ key: item.key, status: newStatus, reference_id: item.reference_id }],
+      });
+
+      setMeetingData(updatedMeeting);
+    } catch (err) {
+      console.error('Erreur lors de la mise à jour du prérequis:', err);
+      setError('Impossible de mettre à jour le prérequis. Veuillez réessayer.');
+    } finally {
+      setUpdatingItems((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(updateKey);
+        return newSet;
+      });
+    }
+  };
+
+  const handleJoinMeeting = async () => {
+    if (!canJoin || !meetingId) return;
+
+    try {
+      const check = await prerequisitesService.canLaunchMeeting(meetingId);
+      if (check.canLaunch) {
+        onNavigate('video');
       } else {
-        newSet.add(id);
+        setError(check.reason || 'Impossible de rejoindre la réunion');
       }
-      return newSet;
-    });
+    } catch (err) {
+      console.error('Erreur lors de la vérification:', err);
+      onNavigate('video'); // Rejoindre quand même en cas d'erreur
+    }
   };
 
-  const requiredPrerequisites = prerequisites.filter((p) => p.required);
-  const requiredCompleted = requiredPrerequisites.filter((p) => checkedItems.has(p.id)).length;
-  const totalCompleted = prerequisites.filter((p) => checkedItems.has(p.id)).length;
-  const progressPercentage = (totalCompleted / prerequisites.length) * 100;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Chargement des prérequis...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!meetingData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-gray-900 mb-4">Aucune donnée de prérequis disponible</p>
+            <Button onClick={() => onNavigate('reunions')}>Retour aux réunions</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const user = authService.getCurrentUser();
+  const myDoctor = meetingData.doctors.find((d) => d.doctor_id === user?.id);
+
+  if (!myDoctor) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+            <p className="text-gray-900 mb-4">Vous n'êtes pas assigné à cette réunion</p>
+            <Button onClick={() => onNavigate('reunions')}>Retour aux réunions</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const prerequisites = myDoctor.items;
+  const requiredPrerequisites = prerequisites; // Tous sont obligatoires dans ce système
+  const requiredCompleted = prerequisites.filter((p) => p.status === 'done').length;
+  const totalCompleted = myDoctor.progress.completed;
+  const progressPercentage = myDoctor.progress.percentage;
   const canJoin = requiredCompleted === requiredPrerequisites.length;
-
-  const getRoleLabel = (role: UserRole): string => {
-    const labels: Record<UserRole, string> = {
-      radiologue: 'Radiologue',
-      oncologue: 'Oncologue',
-      chirurgien: 'Chirurgien',
-      pathologiste: 'Pathologiste',
-      admin: 'Administrateur',
-    };
-    return labels[role];
-  };
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-4">
-          <Button
-            variant="ghost"
-            onClick={() => onNavigate('reunions')}
-            className="mb-4"
-          >
+          <Button variant="ghost" onClick={() => onNavigate('reunions')} className="mb-4">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Retour aux réunions
           </Button>
@@ -215,6 +166,23 @@ export function MeetingPrerequisitesCheck({
       {/* Content */}
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="space-y-6">
+          {/* Erreur Alert */}
+          {error && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-800">
+                {error}
+                <Button
+                  variant="link"
+                  className="ml-2 text-red-600 underline"
+                  onClick={loadPrerequisites}
+                >
+                  Réessayer
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Meeting Info Card */}
           <Card>
             <CardHeader>
@@ -223,7 +191,8 @@ export function MeetingPrerequisitesCheck({
                   <CardTitle className="mb-2">{meetingTitle}</CardTitle>
                   <div className="space-y-1 text-sm text-gray-600">
                     <p>
-                      📅 {new Date(meetingDate).toLocaleDateString('fr-FR', {
+                      📅{' '}
+                      {new Date(meetingDate).toLocaleDateString('fr-FR', {
                         weekday: 'long',
                         day: 'numeric',
                         month: 'long',
@@ -231,10 +200,13 @@ export function MeetingPrerequisitesCheck({
                       })}
                     </p>
                     <p>🕐 {meetingTime}</p>
+                    <p>
+                      👤 Patient: <strong>{meetingData.patient_id}</strong>
+                    </p>
                   </div>
                 </div>
                 <Badge className="bg-blue-100 text-blue-700 border-blue-200">
-                  {getRoleLabel(userRole)}
+                  {myDoctor.speciality}
                 </Badge>
               </div>
             </CardHeader>
@@ -275,25 +247,29 @@ export function MeetingPrerequisitesCheck({
           {/* Prerequisites List */}
           <Card>
             <CardHeader>
-              <CardTitle>Pré-requis pour {getRoleLabel(userRole)}</CardTitle>
+              <CardTitle>Pré-requis pour {myDoctor.speciality}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {prerequisites.map((prerequisite) => {
-                  const isChecked = checkedItems.has(prerequisite.id);
+                  const isChecked = prerequisite.status === 'done';
+                  const isUpdating = updatingItems.has(prerequisite.key);
+
                   return (
                     <div
-                      key={prerequisite.id}
+                      key={prerequisite.key}
                       className={`p-4 rounded-lg border-2 transition-all cursor-pointer hover:shadow-md ${
                         isChecked
                           ? 'bg-green-50 border-green-200'
                           : 'bg-white border-gray-200 hover:border-blue-300'
-                      }`}
-                      onClick={() => togglePrerequisite(prerequisite.id)}
+                      } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
+                      onClick={() => !isUpdating && togglePrerequisite(prerequisite)}
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-shrink-0 mt-0.5">
-                          {isChecked ? (
+                          {isUpdating ? (
+                            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                          ) : isChecked ? (
                             <CheckCircle2 className="w-6 h-6 text-green-600" />
                           ) : (
                             <Circle className="w-6 h-6 text-gray-400" />
@@ -302,20 +278,20 @@ export function MeetingPrerequisitesCheck({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className={`${isChecked ? 'text-green-900' : 'text-gray-900'}`}>
-                              {prerequisite.title}
+                              {prerequisite.label}
                             </h3>
-                            {prerequisite.required && (
-                              <Badge
-                                variant="outline"
-                                className="bg-red-50 text-red-700 border-red-200 text-xs"
-                              >
-                                Obligatoire
-                              </Badge>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                              Obligatoire
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">
+                              {prerequisite.source === 'orthanc' ? '📷 Imagerie' : '📄 Document'}
+                            </Badge>
+                            {prerequisite.reference_id && (
+                              <span className="text-xs text-gray-500">Réf: {prerequisite.reference_id}</span>
                             )}
                           </div>
-                          <p className={`text-sm ${isChecked ? 'text-green-700' : 'text-gray-600'}`}>
-                            {prerequisite.description}
-                          </p>
                         </div>
                       </div>
                     </div>
@@ -327,21 +303,15 @@ export function MeetingPrerequisitesCheck({
 
           {/* Action Buttons */}
           <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => onNavigate('reunions')}
-            >
+            <Button variant="outline" className="flex-1" onClick={() => onNavigate('reunions')}>
               Annuler
             </Button>
             <Button
               className={`flex-1 ${
-                canJoin
-                  ? 'bg-green-600 hover:bg-green-700'
-                  : 'bg-gray-400 cursor-not-allowed'
+                canJoin ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'
               }`}
               disabled={!canJoin}
-              onClick={() => canJoin && onNavigate('video')}
+              onClick={handleJoinMeeting}
             >
               <Video className="w-4 h-4 mr-2" />
               {canJoin ? 'Rejoindre la réunion' : 'Pré-requis incomplets'}
@@ -351,8 +321,8 @@ export function MeetingPrerequisitesCheck({
           {/* Help Text */}
           <div className="text-center text-sm text-gray-500">
             <p>
-              💡 Cochez chaque élément une fois que vous l'avez complété. Les pré-requis obligatoires
-              doivent être complétés pour accéder à la réunion.
+              💡 Cochez chaque élément une fois que vous l'avez complété. Les pré-requis obligatoires doivent
+              être complétés pour accéder à la réunion.
             </p>
           </div>
         </div>

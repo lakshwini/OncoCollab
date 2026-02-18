@@ -1,19 +1,26 @@
-import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { Module, forwardRef } from '@nestjs/common';
+import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { DoctorsModule } from '../doctors/doctors.module';
+import { JwtConfigModule } from './jwt-config.module';
+import { JwtStrategy } from './jwt.strategy';
+import { SupabaseService } from './supabase.service';
+import { HybridJwtStrategy } from './hybrid-jwt.strategy';
 
 @Module({
     imports: [
-        DoctorsModule,
-        JwtModule.register({
-            global: true,
-            secret: process.env.JWT_SECRET || 'your-secret-key',
-            signOptions: { expiresIn: '1h' },
-        }),
+        forwardRef(() => DoctorsModule), // ✅ Correction dépendance circulaire
+        JwtConfigModule, // ✅ Utilise le module global JWT
+        PassportModule,
     ],
     controllers: [AuthController],
-    providers: [AuthService],
+    providers: [
+        AuthService,
+        JwtStrategy, // ✅ Stratégie JWT custom (existante)
+        SupabaseService, // ✅ NOUVEAU: Service Supabase
+        HybridJwtStrategy, // ✅ NOUVEAU: Stratégie hybride (custom + Supabase)
+    ],
+    exports: [AuthService, SupabaseService],
 })
 export class AuthModule { }

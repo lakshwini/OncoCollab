@@ -20,6 +20,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import { useVideo } from '../contexts/VideoContext';
 
 interface PreMeetingSetupProps {
   meetingTitle: string;
@@ -59,8 +60,13 @@ export function PreMeetingSetup({
   onCancel,
 }: PreMeetingSetupProps) {
   const { language } = useLanguage();
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
+  const {
+    stream,
+    isMicOn,
+    isCameraOn,
+    setMicOn,
+    setCameraOn,
+  } = useVideo();
   const [audioMode, setAudioMode] = useState<AudioMode>('computer');
   const [speakerVolume, setSpeakerVolume] = useState(75);
   const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffect>('none');
@@ -82,9 +88,10 @@ export function PreMeetingSetup({
   const [showSpeakerDropdown, setShowSpeakerDropdown] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const lastCameraRef = useRef<string | null>(null);
+  const lastMicrophoneRef = useRef<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
-  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -93,8 +100,12 @@ export function PreMeetingSetup({
   useEffect(() => {
     const initDevices = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        stream.getTracks().forEach(track => track.stop());
+        if (isCameraOn) {
+          await setCameraOn(true);
+        }
+        if (isMicOn) {
+          await setMicOn(true);
+        }
 
         const devices = await navigator.mediaDevices.enumerateDevices();
 
@@ -123,7 +134,7 @@ export function PreMeetingSetup({
         setIsLoading(false);
         if (err.name === 'NotAllowedError') {
           setPermissionError(language === 'fr'
-            ? 'Accès aux périphériques refusé. Veuillez autoriser l\'accès à la caméra et au microphone.'
+            ? "Acces aux peripheriques refuse. Veuillez autoriser l'acces a la camera et au microphone."
             : 'Device access denied. Please allow camera and microphone access.');
         } else {
           setPermissionError(err.message);
@@ -132,58 +143,42 @@ export function PreMeetingSetup({
     };
 
     initDevices();
-  }, [language]);
+  }, [language, isCameraOn, isMicOn, setCameraOn, setMicOn]);
 
-  // Video preview - always get the raw stream
   useEffect(() => {
-    let currentStream: MediaStream | null = null;
-    let isMounted = true;
+    if (!selectedMicrophone) {
+      return;
+    }
 
-    const startVideo = async () => {
-      try {
-        if (previewStream) {
-          previewStream.getTracks().forEach(t => t.stop());
-        }
+    const shouldForce = selectedMicrophone !== lastMicrophoneRef.current;
+    lastMicrophoneRef.current = selectedMicrophone;
+    if (isMicOn) {
+      setMicOn(true, selectedMicrophone);
+    }
+  }, [selectedMicrophone, isMicOn, setMicOn]);
 
-        if (!videoEnabled) {
-          setPreviewStream(null);
-          if (videoRef.current) videoRef.current.srcObject = null;
-          return;
-        }
+  // Video preview - attach shared stream to video element
+  // ✅ Ne PAS appeler setCameraOn ici — le toggle et le changement de device sont gérés séparément
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = isCameraOn && stream ? stream : null;
+    }
+  }, [isCameraOn, stream]);
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: selectedCamera
-            ? { deviceId: { exact: selectedCamera } }
-            : { facingMode: 'user' },
-          audio: false,
-        });
-
-        if (isMounted) {
-          currentStream = stream;
-          setPreviewStream(stream);
-          // Always feed the raw video element (canvas effect will handle switching visibility)
-          if (videoRef.current) videoRef.current.srcObject = stream;
-        } else {
-          stream.getTracks().forEach(t => t.stop());
-        }
-      } catch (err) {
-        console.error('Video error:', err);
-      }
-    };
-
-    startVideo();
-
-    return () => {
-      isMounted = false;
-      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-    };
-  }, [videoEnabled, selectedCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changement de caméra via dropdown uniquement
+  useEffect(() => {
+    if (!selectedCamera || selectedCamera === lastCameraRef.current) return;
+    lastCameraRef.current = selectedCamera;
+    if (isCameraOn) {
+      setCameraOn(true, selectedCamera);
+    }
+  }, [selectedCamera, isCameraOn, setCameraOn]);
 
   // Canvas-based background effect rendering
   useEffect(() => {
     cancelAnimationFrame(animFrameRef.current);
 
-    if (!videoEnabled || !previewStream || backgroundEffect === 'none') {
+    if (!isCameraOn || !stream || backgroundEffect === 'none') {
       return;
     }
 
@@ -209,18 +204,14 @@ export function PreMeetingSetup({
       canvas.height = video.videoHeight;
 
       ctx.save();
-      // Mirror horizontally (like a selfie camera)
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
 
       if (backgroundEffect === 'blur') {
-        // Real blur effect: draw the whole frame blurred
         ctx.filter = 'blur(14px)';
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ctx.filter = 'none';
 
-        // Draw the person area (center ellipse) sharp on top
-        // Simulated segmentation: center is sharp, edges are blurred
         const cx = canvas.width / 2;
         const cy = canvas.height * 0.45;
         const rx = canvas.width * 0.30;
@@ -232,10 +223,8 @@ export function PreMeetingSetup({
         ctx.clip();
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       } else if (bgGradients[backgroundEffect]) {
-        // Virtual background: gradient bg + person cutout
         const colors = bgGradients[backgroundEffect];
 
-        // Draw gradient background (needs non-mirrored coords)
         ctx.restore();
         ctx.save();
         const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
@@ -245,7 +234,6 @@ export function PreMeetingSetup({
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw person from video (mirrored) in center ellipse
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         const cx = canvas.width / 2;
@@ -253,7 +241,6 @@ export function PreMeetingSetup({
         const rx = canvas.width * 0.30;
         const ry = canvas.height * 0.48;
 
-        // Outer feathered edge
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
         ctx.closePath();
@@ -261,7 +248,6 @@ export function PreMeetingSetup({
         ctx.filter = 'blur(6px)';
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Inner sharp area
         ctx.filter = 'none';
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx * 0.88, ry * 0.88, 0, 0, Math.PI * 2);
@@ -279,28 +265,21 @@ export function PreMeetingSetup({
     return () => {
       cancelAnimationFrame(animFrameRef.current);
     };
-  }, [backgroundEffect, videoEnabled, previewStream]);
+  }, [backgroundEffect, isCameraOn, stream]);
 
-  // Audio level monitoring - using RMS for better voice detection
+  // Audio level monitoring - using RMS
   useEffect(() => {
-    if (!micEnabled || audioMode !== 'computer') {
+    if (!isMicOn || audioMode !== 'computer' || !stream) {
       setAudioLevel(0);
       return;
     }
 
     let animationId: number;
     let audioCtx: AudioContext | null = null;
-    let stream: MediaStream | null = null;
     let isMounted = true;
 
     const startAudio = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: selectedMicrophone
-            ? { deviceId: { exact: selectedMicrophone } }
-            : true
-        });
-
         audioCtx = new AudioContext();
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 2048;
@@ -308,7 +287,6 @@ export function PreMeetingSetup({
         const source = audioCtx.createMediaStreamSource(stream);
         source.connect(analyser);
 
-        // Use time domain data for RMS calculation (much more responsive to voice)
         const bufferLength = analyser.fftSize;
         const dataArray = new Float32Array(bufferLength);
 
@@ -317,15 +295,11 @@ export function PreMeetingSetup({
 
           analyser.getFloatTimeDomainData(dataArray);
 
-          // Calculate RMS (Root Mean Square) for actual voice level
           let sumSquares = 0;
           for (let i = 0; i < bufferLength; i++) {
             sumSquares += dataArray[i] * dataArray[i];
           }
           const rms = Math.sqrt(sumSquares / bufferLength);
-
-          // Convert to percentage (RMS typically 0-0.5 for normal speech)
-          // Multiply by 200 to get a good range, cap at 100
           const level = Math.min(100, rms * 300);
           setAudioLevel(level);
 
@@ -343,15 +317,13 @@ export function PreMeetingSetup({
       isMounted = false;
       cancelAnimationFrame(animationId);
       if (audioCtx) audioCtx.close();
-      if (stream) stream.getTracks().forEach(t => t.stop());
     };
-  }, [micEnabled, audioMode, selectedMicrophone]);
+  }, [isMicOn, audioMode, stream]);
 
   const handleJoin = () => {
-    if (previewStream) previewStream.getTracks().forEach(t => t.stop());
     onJoin({
-      micEnabled: audioMode === 'computer' ? micEnabled : false,
-      videoEnabled,
+      micEnabled: audioMode === 'computer' ? isMicOn : false,
+      videoEnabled: isCameraOn,
       selectedMicrophone,
       selectedCamera,
       selectedSpeaker,
@@ -373,23 +345,23 @@ export function PreMeetingSetup({
   }, []);
 
   const t = {
-    title: language === 'fr' ? 'Choisissez vos options vidéo et audio' : 'Choose your video and audio options',
-    meetingInfo: language === 'fr' ? 'Réunion' : 'Meeting',
-    cameraOff: language === 'fr' ? 'Votre caméra est désactivée' : 'Your camera is turned off',
-    computerAudio: language === 'fr' ? 'Audio de l\'ordinateur' : 'Computer audio',
-    phoneAudio: language === 'fr' ? 'Audio du téléphone' : 'Phone audio',
+    title: language === 'fr' ? 'Choisissez vos options video et audio' : 'Choose your video and audio options',
+    meetingInfo: language === 'fr' ? 'Reunion' : 'Meeting',
+    cameraOff: language === 'fr' ? 'Votre camera est desactivee' : 'Your camera is turned off',
+    computerAudio: language === 'fr' ? "Audio de l'ordinateur" : 'Computer audio',
+    phoneAudio: language === 'fr' ? 'Audio du telephone' : 'Phone audio',
     roomAudio: language === 'fr' ? 'Audio de la salle' : 'Room audio',
-    noAudio: language === 'fr' ? 'Ne pas utiliser l\'audio' : 'Don\'t use audio',
+    noAudio: language === 'fr' ? "Ne pas utiliser l'audio" : "Don't use audio",
     cancel: language === 'fr' ? 'Annuler' : 'Cancel',
     joinNow: language === 'fr' ? 'Rejoindre maintenant' : 'Join now',
-    backgroundFilters: language === 'fr' ? 'Effets et arrière-plans' : 'Effects and backgrounds',
+    backgroundFilters: language === 'fr' ? 'Effets et arriere-plans' : 'Effects and backgrounds',
     microphone: language === 'fr' ? 'Microphone' : 'Microphone',
-    camera: language === 'fr' ? 'Caméra' : 'Camera',
+    camera: language === 'fr' ? 'Camera' : 'Camera',
     speaker: language === 'fr' ? 'Haut-parleur' : 'Speaker',
-    noDevices: language === 'fr' ? 'Aucun périphérique trouvé' : 'No devices found',
+    noDevices: language === 'fr' ? 'Aucun peripherique trouve' : 'No devices found',
     micLevel: language === 'fr' ? 'Niveau du microphone' : 'Microphone level',
     goodSignal: language === 'fr' ? 'Bon signal' : 'Good signal',
-    speaking: language === 'fr' ? 'Parole détectée' : 'Speaking detected',
+    speaking: language === 'fr' ? 'Parole detectee' : 'Speaking detected',
     bgNone: language === 'fr' ? 'Aucun' : 'None',
     bgBlur: language === 'fr' ? 'Flou' : 'Blur',
     bgOffice: language === 'fr' ? 'Bureau' : 'Office',
@@ -617,9 +589,8 @@ export function PreMeetingSetup({
               overflow: 'hidden', position: 'relative',
               border: '2px solid #3d3d3d',
             }}>
-              {videoEnabled && previewStream ? (
+              {isCameraOn && stream ? (
                 <>
-                  {/* Raw video - visible when no effect, hidden (but still playing) when effect active */}
                   <video
                     ref={videoRef}
                     autoPlay muted playsInline
@@ -631,7 +602,6 @@ export function PreMeetingSetup({
                       pointerEvents: backgroundEffect !== 'none' ? 'none' : 'auto',
                     }}
                   />
-                  {/* Canvas - for background effects (always in DOM, hidden when not used) */}
                   <canvas
                     ref={canvasRef}
                     style={{
@@ -639,7 +609,6 @@ export function PreMeetingSetup({
                       display: backgroundEffect !== 'none' ? 'block' : 'none',
                     }}
                   />
-                  {/* Background effect overlay indicator */}
                   {backgroundEffect !== 'none' && (
                     <div style={{
                       position: 'absolute', top: '8px', right: '8px',
@@ -652,7 +621,6 @@ export function PreMeetingSetup({
                       </span>
                     </div>
                   )}
-                  {/* Name overlay */}
                   <div style={{
                     position: 'absolute', bottom: '10px', left: '10px',
                     backgroundColor: 'rgba(0,0,0,0.6)', padding: '5px 10px',
@@ -686,12 +654,12 @@ export function PreMeetingSetup({
                 display: 'flex', alignItems: 'center', gap: '6px',
                 backgroundColor: '#292929', padding: '6px 14px', borderRadius: '8px',
               }}>
-                <VideoOff size={18} color={videoEnabled ? '#6b7280' : 'white'} />
+                <VideoOff size={18} color={isCameraOn ? '#6b7280' : 'white'} />
                 <button
-                  onClick={() => setVideoEnabled(!videoEnabled)}
+                  onClick={() => setCameraOn(!isCameraOn)}
                   style={{
                     width: '40px', height: '22px', borderRadius: '11px',
-                    backgroundColor: videoEnabled ? '#5b5fc7' : '#4b5563',
+                    backgroundColor: isCameraOn ? '#5b5fc7' : '#4b5563',
                     border: 'none', cursor: 'pointer', position: 'relative',
                     transition: 'background-color 0.2s',
                   }}
@@ -699,10 +667,10 @@ export function PreMeetingSetup({
                   <div style={{
                     width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white',
                     position: 'absolute', top: '2px',
-                    left: videoEnabled ? '20px' : '2px', transition: 'left 0.2s',
+                    left: isCameraOn ? '20px' : '2px', transition: 'left 0.2s',
                   }} />
                 </button>
-                <Video size={18} color={videoEnabled ? 'white' : '#6b7280'} />
+                <Video size={18} color={isCameraOn ? 'white' : '#6b7280'} />
               </div>
             </div>
 
@@ -785,8 +753,8 @@ export function PreMeetingSetup({
           <div style={{ flex: '1 1 380px', minWidth: '300px' }}>
             {[
               { id: 'computer' as AudioMode, label: t.computerAudio, icon: <Monitor size={18} />, desc: language === 'fr' ? 'Micro pc et haut-parleurs' : 'PC mic and speakers' },
-              { id: 'phone' as AudioMode, label: t.phoneAudio, icon: <Phone size={18} />, desc: language === 'fr' ? 'Utiliser le téléphone pour l\'audio' : 'Use phone for audio' },
-              { id: 'room' as AudioMode, label: t.roomAudio, icon: <Speaker size={18} />, desc: language === 'fr' ? 'Périphérique de salle' : 'Room device' },
+              { id: 'phone' as AudioMode, label: t.phoneAudio, icon: <Phone size={18} />, desc: language === 'fr' ? "Utiliser le telephone pour l'audio" : 'Use phone for audio' },
+              { id: 'room' as AudioMode, label: t.roomAudio, icon: <Speaker size={18} />, desc: language === 'fr' ? 'Peripherique de salle' : 'Room device' },
               { id: 'none' as AudioMode, label: t.noAudio, icon: <MicOff size={18} />, desc: language === 'fr' ? 'Rejoindre sans audio' : 'Join without audio' },
             ].map((option) => (
               <div
@@ -846,28 +814,28 @@ export function PreMeetingSetup({
                     {/* Mic toggle + volume */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px' }}>
                       <button
-                        onClick={() => setMicEnabled(!micEnabled)}
+                        onClick={() => setMicOn(!isMicOn)}
                         style={{
                           padding: '7px', borderRadius: '8px', border: 'none',
-                          backgroundColor: micEnabled ? '#3d3d3d' : 'rgba(239, 68, 68, 0.2)',
-                          color: micEnabled ? 'white' : '#ef4444', cursor: 'pointer',
+                          backgroundColor: isMicOn ? '#3d3d3d' : 'rgba(239, 68, 68, 0.2)',
+                          color: isMicOn ? 'white' : '#ef4444', cursor: 'pointer',
                         }}
                       >
-                        {micEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+                        {isMicOn ? <Mic size={18} /> : <MicOff size={18} />}
                       </button>
 
                       <button
-                        onClick={() => setMicEnabled(!micEnabled)}
+                        onClick={() => setMicOn(!isMicOn)}
                         style={{
                           width: '40px', height: '22px', borderRadius: '11px',
-                          backgroundColor: micEnabled ? '#5b5fc7' : '#4b5563',
+                          backgroundColor: isMicOn ? '#5b5fc7' : '#4b5563',
                           border: 'none', cursor: 'pointer', position: 'relative',
                         }}
                       >
                         <div style={{
                           width: '18px', height: '18px', borderRadius: '50%',
                           backgroundColor: 'white', position: 'absolute', top: '2px',
-                          left: micEnabled ? '20px' : '2px', transition: 'left 0.2s',
+                          left: isMicOn ? '20px' : '2px', transition: 'left 0.2s',
                         }} />
                       </button>
 
@@ -883,7 +851,7 @@ export function PreMeetingSetup({
                     </div>
 
                     {/* Audio level indicator */}
-                    {micEnabled && (
+                    {isMicOn && (
                       <div style={{ marginTop: '14px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                           <span style={{ color: '#9ca3af', fontSize: '11px' }}>{t.micLevel}</span>
