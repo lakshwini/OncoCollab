@@ -39,7 +39,11 @@ const C = {
   blueLight: '#60a5fa',
 };
 
-function StatusDot({ status }: { status: 'pending' | 'done' }) {
+function StatusDot({ status }: { status: 'pending' | 'in_progress' | 'done' }) {
+  const color =
+    status === 'done' ? C.green :
+    status === 'in_progress' ? '#f97316' :
+    C.red;
   return (
     <div
       style={{
@@ -47,7 +51,7 @@ function StatusDot({ status }: { status: 'pending' | 'done' }) {
         height: '8px',
         borderRadius: '50%',
         flexShrink: 0,
-        backgroundColor: status === 'done' ? C.green : C.red,
+        backgroundColor: color,
       }}
     />
   );

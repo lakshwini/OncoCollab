@@ -50,6 +50,8 @@ export function PrerequisiteModulePlaceholder({
 
   const fullName = `Dr. ${doctor.firstname} ${doctor.lastname}`;
   const isDone = item.status === 'done';
+  const isInProgress = item.status === 'in_progress';
+  const statusColor = isDone ? C.green : isInProgress ? '#f97316' : C.red;
 
   const jsonData = {
     key: item.key,
@@ -110,7 +112,7 @@ export function PrerequisiteModulePlaceholder({
           {isDone ? (
             <CheckCircle size={30} color={C.green} style={{ flexShrink: 0, marginTop: '2px' }} />
           ) : (
-            <AlertCircle size={30} color={C.red} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <AlertCircle size={30} color={statusColor} style={{ flexShrink: 0, marginTop: '2px' }} />
           )}
           <div>
             <div
@@ -159,8 +161,8 @@ export function PrerequisiteModulePlaceholder({
               gap: '6px',
               padding: '3px 10px',
               borderRadius: '99px',
-              backgroundColor: isDone ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-              color: isDone ? C.green : C.red,
+              backgroundColor: isDone ? 'rgba(34,197,94,0.15)' : isInProgress ? 'rgba(249,115,22,0.15)' : 'rgba(239,68,68,0.15)',
+              color: statusColor,
               fontSize: '12px',
               fontWeight: 500,
               flexShrink: 0,
@@ -171,12 +173,14 @@ export function PrerequisiteModulePlaceholder({
                 width: '6px',
                 height: '6px',
                 borderRadius: '50%',
-                backgroundColor: isDone ? C.green : C.red,
+                backgroundColor: statusColor,
               }}
             />
             {isDone
               ? (language === 'fr' ? 'Complété' : 'Done')
-              : (language === 'fr' ? 'En attente' : 'Pending')}
+              : isInProgress
+                ? (language === 'fr' ? 'En cours' : 'In progress')
+                : (language === 'fr' ? 'En attente' : 'Pending')}
           </div>
         </div>
 

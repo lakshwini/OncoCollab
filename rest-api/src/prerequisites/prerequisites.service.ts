@@ -369,17 +369,18 @@ export class PrerequisitesService {
     const meeting = meetingResult[0];
 
     // 3️⃣ Récupérer TOUS les participants avec leurs infos complètes (PostgreSQL)
+    // La spécialité vient de roles.rolename via doctors.roleid (pas de table specialties)
     const participantsQuery = `
       SELECT DISTINCT
         d.doctorid as doctor_id,
         d.firstname,
         d.lastname,
         d.email,
-        s.name as speciality,
+        COALESCE(r.rolename, 'Non spécifié') as speciality,
         mr.role as meeting_role
       FROM meeting_participants mp
       INNER JOIN doctors d ON mp.doctor_id = d.doctorid
-      LEFT JOIN specialties s ON d.speciality_id = s.id
+      LEFT JOIN roles r ON d.roleid = r.roleid
       LEFT JOIN meeting_roles mr ON mp.meeting_id = mr.meeting_id AND mp.doctor_id = mr.doctor_id
       WHERE mp.meeting_id = $1
       ORDER BY d.lastname

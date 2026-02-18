@@ -8,7 +8,7 @@ export interface PrerequisiteItemDetail {
   label: string;
   label_fr?: string;
   label_en?: string;
-  status: 'pending' | 'done';
+  status: 'pending' | 'in_progress' | 'done';
   source: 'orthanc' | 'document' | null;
   reference_id: string | null;
 }
