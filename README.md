@@ -1,5 +1,3 @@
-<div align="center">
-
 # 🏥 OncoCollab
 
 ### Plateforme RCP (Réunion de Concertation Pluridisciplinaire) en Oncologie
@@ -12,8 +10,6 @@
 [![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=for-the-badge&logo=webrtc&logoColor=white)](https://webrtc.org/)
 
 *Plateforme collaborative sécurisée pour les réunions médicales pluridisciplinaires en temps réel*
-
-</div>
 
 ---
 
@@ -31,15 +27,12 @@
 
 ## 📦 Prérequis
 
-Installer les outils suivants avant de commencer :
-
 | Outil | Version | Installation |
 |-------|---------|--------------|
 | **Node.js** | ≥ 20.0.0 | [nodejs.org](https://nodejs.org) |
 | **npm** | ≥ 10.0.0 | (inclus avec Node.js) |
 | **PostgreSQL** | ≥ 14 | [postgresql.org](https://www.postgresql.org) |
-| **MongoDB** | ≥ 6.0 | [mongodb.com](https://www.mongodb.com) ou MongoDB Atlas |
-| **Docker** | ≥ 20.x | [docker.com](https://www.docker.com) |
+| **MongoDB** | ≥ 6.0 | [mongodb.com](https://www.mongodb.com) |
 | **mkcert** | Dernière | [github.com/FiloSottile/mkcert](https://github.com/FiloSottile/mkcert) |
 
 ### Compte Supabase
@@ -59,30 +52,7 @@ git clone https://github.com/lakshwini/OncoCollab.git
 cd OncoCollab
 ```
 
-### 2️⃣ Configurer PostgreSQL
-
-```bash
-# Créer la base de données
-psql -U postgres
-CREATE USER laksh WITH PASSWORD 'laksh';
-CREATE DATABASE "OncoCollab" OWNER laksh;
-\q
-```
-
-### 3️⃣ Configurer MongoDB
-
-**Option A : Local**
-```bash
-# Démarrer MongoDB
-brew services start mongodb-community@6.0  # macOS
-sudo systemctl start mongod                # Linux
-```
-
-**Option B : MongoDB Atlas** (Cloud gratuit)
-- Créer un cluster sur [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
-- Récupérer l'URI de connexion
-
-### 4️⃣ Variables d'environnement
+### 2️⃣ Variables d'environnement
 
 **`.env` (racine du projet)**
 
@@ -94,8 +64,6 @@ VITE_USE_HTTPS=true
 SUPABASE_URL=https://VOTRE_PROJET.supabase.co
 SUPABASE_ANON_KEY=votre_cle_anon_publique
 SUPABASE_SERVICE_KEY=votre_cle_service
-
-EXTERNAL_IP=votre_ip_publique
 ```
 
 **`rest-api/.env`**
@@ -118,51 +86,33 @@ SUPABASE_URL=https://VOTRE_PROJET.supabase.co
 SUPABASE_ANON_KEY=votre_cle_anon_publique
 ```
 
-### 5️⃣ Générer les certificats HTTPS
+### 3️⃣ Générer les certificats HTTPS
 
 ```bash
 # Installer mkcert
 brew install mkcert          # macOS
 choco install mkcert         # Windows
-# Linux : voir https://github.com/FiloSottile/mkcert
 
 # Générer les certificats (à la racine du projet)
 mkcert -install
 mkcert localhost 127.0.0.1
 ```
 
-### 6️⃣ Lancer le serveur TURN (Docker)
+### 4️⃣ Installer et lancer
 
 ```bash
-docker compose up -d
-```
-
-### 7️⃣ Installer les dépendances
-
-```bash
-# Frontend
+# Installer les dépendances
 npm install
+cd rest-api && npm install && cd ..
 
-# Backend
-cd rest-api
-npm install
-cd ..
-```
+# Terminal 1 : Backend
+cd rest-api && npm run start:dev
 
-### 8️⃣ Lancer le projet
-
-**Terminal 1 : Backend**
-```bash
-cd rest-api
-npm run start:dev
-```
-
-**Terminal 2 : Frontend**
-```bash
+# Terminal 2 : Frontend
 npm run dev
 ```
 
-Ouvrir **https://localhost:5173** dans le navigateur 🎉
+Ouvrir **https://localhost:5173** 🎉
 
 ---
 
@@ -185,7 +135,6 @@ OncoCollab/
 │       └── video/           # WebSocket + WebRTC
 │
 ├── .env                     # Config frontend
-├── docker-compose.yml       # TURN server
 ├── localhost+2.pem          # Certificat HTTPS
 └── README.md
 ```
@@ -209,7 +158,7 @@ PostgreSQL    MongoDB
 
 **Services externes :**
 - Supabase : Authentification OTP
-- TURN Server (Docker) : NAT traversal pour WebRTC
+- TURN Server : NAT traversal pour WebRTC
 
 ---
 
@@ -237,7 +186,6 @@ POST   /patients             # Créer un patient
 ```
 GET    /meetings             # Liste des réunions
 POST   /meetings             # Créer une réunion
-GET    /meetings/:id/participants
 ```
 
 ### Prérequis
@@ -249,30 +197,16 @@ PATCH  /prerequisites/meeting/:id       # Mettre à jour
 
 ---
 
-## 🚨 Dépannage rapide
+## 🚨 Dépannage
 
 ### WebRTC ne fonctionne pas
 - ✅ Vérifier que HTTPS est activé (`USE_HTTPS=true`)
 - ✅ Vérifier que les certificats sont bien à la racine
 - ✅ Autoriser la caméra/micro dans le navigateur
 
-### Erreur MongoDB
-```bash
-# Vérifier que MongoDB tourne
-brew services list | grep mongodb
-```
-
-### Erreur PostgreSQL
-```bash
-# Vérifier que PostgreSQL tourne
-brew services list | grep postgresql
-```
-
-### TURN server ne répond pas
-```bash
-# Voir les logs
-docker logs coturn
-```
+### Erreur de connexion base de données
+- ✅ Vérifier que PostgreSQL et MongoDB sont démarrés
+- ✅ Vérifier les credentials dans les fichiers `.env`
 
 ---
 
@@ -282,7 +216,7 @@ docker logs coturn
 **Backend :** NestJS, TypeORM, Mongoose, Socket.io  
 **Bases :** PostgreSQL, MongoDB  
 **Auth :** Supabase (OTP), JWT  
-**Infra :** Docker (TURN server), mkcert (HTTPS)
+**Infra :** mkcert (HTTPS)
 
 ---
 
@@ -292,10 +226,4 @@ MIT © 2026 OncoCollab
 
 ---
 
-<div align="center">
-
 **Fait avec 💙 pour améliorer les soins en oncologie**
-
-[⬆ Retour en haut](#-oncocollab)
-
-</div>
