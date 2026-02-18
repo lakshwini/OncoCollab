@@ -1,14 +1,6 @@
 # 🏥 OncoCollab
 
 ### Plateforme RCP (Réunion de Concertation Pluridisciplinaire) en Oncologie
-
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
-[![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)](https://nestjs.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=for-the-badge&logo=webrtc&logoColor=white)](https://webrtc.org/)
-
 *Plateforme collaborative sécurisée pour les réunions médicales pluridisciplinaires en temps réel*
 
 ---
@@ -21,7 +13,7 @@
 - 🎥 Visioconférence WebRTC avec serveur TURN
 - 💬 Chat temps réel (WebSocket)
 - 📂 Upload de documents et imagerie médicale
-- 🔒 HTTPS obligatoire pour la sécurité
+
 
 ---
 
@@ -45,14 +37,8 @@ Créer un projet gratuit sur [supabase.com](https://supabase.com) et récupérer
 
 ## 🚀 Installation
 
-### 1️⃣ Cloner le projet
 
-```bash
-git clone https://github.com/lakshwini/OncoCollab.git
-cd OncoCollab
-```
-
-### 2️⃣ Variables d'environnement
+### 1️⃣ Variables d'environnement
 
 **`.env` (racine du projet)**
 
@@ -74,13 +60,13 @@ USE_HTTPS=true
 
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_USER=laksh
-POSTGRES_PASSWORD=laksh
+POSTGRES_USER=''
+POSTGRES_PASSWORD=''
 POSTGRES_DB=OncoCollab
 
 MONGODB_URI=mongodb://localhost:27017/oncocollab_prerequisites
 
-JWT_SECRET=generer_une_cle_secrete_forte
+JWT_SECRET=generer_une_cle
 
 SUPABASE_URL=https://VOTRE_PROJET.supabase.co
 SUPABASE_ANON_KEY=votre_cle_anon_publique
@@ -197,19 +183,6 @@ PATCH  /prerequisites/meeting/:id       # Mettre à jour
 
 ---
 
-## 🚨 Dépannage
-
-### WebRTC ne fonctionne pas
-- ✅ Vérifier que HTTPS est activé (`USE_HTTPS=true`)
-- ✅ Vérifier que les certificats sont bien à la racine
-- ✅ Autoriser la caméra/micro dans le navigateur
-
-### Erreur de connexion base de données
-- ✅ Vérifier que PostgreSQL et MongoDB sont démarrés
-- ✅ Vérifier les credentials dans les fichiers `.env`
-
----
-
 ## 🛠 Stack technique
 
 **Frontend :** React, TypeScript, Vite, Socket.io, WebRTC  
@@ -218,12 +191,3 @@ PATCH  /prerequisites/meeting/:id       # Mettre à jour
 **Auth :** Supabase (OTP), JWT  
 **Infra :** mkcert (HTTPS)
 
----
-
-## 📄 Licence
-
-MIT © 2026 OncoCollab
-
----
-
-**Fait avec 💙 pour améliorer les soins en oncologie**
