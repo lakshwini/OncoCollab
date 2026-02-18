@@ -16,6 +16,6 @@ import { JwtConfigModule } from '../auth/jwt-config.module';
     JwtConfigModule, // ✅ Utilise le module global JWT (même secret que AuthModule)
   ],
   providers: [VideoGateway, VideoService],
-  exports: [VideoService],
+  exports: [VideoService, VideoGateway],
 })
 export class VideoModule {}

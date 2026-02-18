@@ -37,6 +37,13 @@ const normalizeParticipantPayload = (participant: ParticipantPayload | string): 
   };
 };
 
+interface PrerequisiteUpdatePayload {
+  meeting_id: string;
+  doctor_id: string;
+  key: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
 interface WebRTCContextType {
   // Connexion
   isConnected: boolean;
@@ -60,6 +67,9 @@ interface WebRTCContextType {
   leaveRoom: () => void;
   fullLeaveRoom: () => void;
   currentRoomId: string | null;
+
+  // Prérequis temps réel
+  lastPrerequisiteUpdate: PrerequisiteUpdatePayload | null;
 }
 
 const WebRTCContext = createContext<WebRTCContextType | undefined>(undefined);
@@ -69,6 +79,8 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<AppSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const streamRef = useRef<MediaStream | null>(null);
+  // Buffer ICE candidates that arrive before setRemoteDescription
+  const pendingIceCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   // États
   const [isConnected, setIsConnected] = useState(false);
@@ -78,6 +90,7 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const [audioLevels, setAudioLevels] = useState<Map<string, number>>(new Map());
+  const [lastPrerequisiteUpdate, setLastPrerequisiteUpdate] = useState<PrerequisiteUpdatePayload | null>(null);
 
   const {
     stream,
@@ -294,6 +307,7 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
       }
 
       peerConnectionsRef.current.delete(socketId);
+      pendingIceCandidates.current.delete(socketId);
       console.log(`[WebRTC] ✅ PeerConnection fermée et supprimée: ${socketId}`);
     }
 
@@ -555,6 +569,20 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
 
           await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
+          // Appliquer les ICE candidates mis en buffer avant setRemoteDescription
+          const buffered = pendingIceCandidates.current.get(fromId);
+          if (buffered && buffered.length > 0) {
+            console.log(`[WebRTC] 🧊 Application de ${buffered.length} ICE candidates buffered pour ${fromId}`);
+            for (const cand of buffered) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (e) {
+                console.debug(`[WebRTC] [ICE] Erreur candidate buffered (normal): ${e}`);
+              }
+            }
+            pendingIceCandidates.current.delete(fromId);
+          }
+
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
 
@@ -589,6 +617,20 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
           console.log(`[WebRTC] ✅ ========== ANSWER APPLIQUÉE POUR: ${fromId} ==========`);
           console.log(`[WebRTC] ✅ État signaling:`, pc.signalingState);
           console.log(`[WebRTC] ✅ État connexion:`, pc.connectionState);
+
+          // Appliquer les ICE candidates mis en buffer avant setRemoteDescription
+          const buffered = pendingIceCandidates.current.get(fromId);
+          if (buffered && buffered.length > 0) {
+            console.log(`[WebRTC] 🧊 Application de ${buffered.length} ICE candidates buffered (answer) pour ${fromId}`);
+            for (const cand of buffered) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (e) {
+                console.debug(`[WebRTC] [ICE] Erreur candidate buffered (normal): ${e}`);
+              }
+            }
+            pendingIceCandidates.current.delete(fromId);
+          }
         } catch (error) {
           console.error(`[WebRTC] ❌ Erreur handling answer de ${fromId}:`, error);
         }
@@ -599,7 +641,22 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
         try {
           const pc = peerConnectionsRef.current.get(fromId);
           if (!pc) {
-            console.debug(`[WebRTC] ⏭️ PC n'existe pas pour ${fromId}, ICE ignoré`);
+            // PC pas encore créée — mettre en buffer pour plus tard
+            if (!pendingIceCandidates.current.has(fromId)) {
+              pendingIceCandidates.current.set(fromId, []);
+            }
+            pendingIceCandidates.current.get(fromId)!.push(candidate);
+            console.debug(`[WebRTC] 🧊 ICE candidate buffered (pas de PC) pour ${fromId}`);
+            return;
+          }
+
+          // Si pas encore de remote description, mettre en buffer
+          if (!pc.remoteDescription) {
+            if (!pendingIceCandidates.current.has(fromId)) {
+              pendingIceCandidates.current.set(fromId, []);
+            }
+            pendingIceCandidates.current.get(fromId)!.push(candidate);
+            console.debug(`[WebRTC] 🧊 ICE candidate buffered (pas de remoteDesc) pour ${fromId}`);
             return;
           }
 
@@ -648,6 +705,12 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
 
           return newMap;
         });
+      });
+
+      // Mise à jour temps réel d'un prérequis
+      socket.on('prerequisite-updated', (data) => {
+        console.log('[WebRTC] 📋 Prérequis mis à jour:', data);
+        setLastPrerequisiteUpdate({ ...data, _ts: Date.now() } as any);
       });
     }
   }, [createPeerConnection, closePeerConnection, setInMeeting]);
@@ -892,7 +955,8 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
     joinRoom,
     leaveRoom,
     fullLeaveRoom,
-    currentRoomId
+    currentRoomId,
+    lastPrerequisiteUpdate,
   };
 
   return (

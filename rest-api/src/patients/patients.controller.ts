@@ -119,27 +119,23 @@ export class PatientsController {
    * - responsable (doctors.firstname + lastname)
    */
   @Get('prise-en-charge/table')
-  async getPatientsTable(@Request() req: any) {
-    const doctorId = req.user.doctorID || req.user.sub;
-
+  async getPatientsTable() {
     const patients = await this.dataSource.query(
-      `SELECT
+      `SELECT DISTINCT ON (p.patientid)
         p.patientid as "patientId",
         p.firstname as "firstName",
         p.lastname as "lastName",
         p.patient_number as "patientNumber",
-        pec.type,
-        s.label as status,
+        COALESCE(pec.type, '') as type,
+        COALESCE(s.label, 'en_attente') as status,
         pec.date_modification as "dateModification",
-        d.firstname as "doctorFirstName",
-        d.lastname as "doctorLastName"
-      FROM prise_en_charge_patient pec
-      JOIN patients p ON pec.patientid = p.patientid
-      JOIN doctors d ON pec.responsableid = d.doctorid
-      JOIN status s ON pec.status_id = s.status_id
-      WHERE pec.responsableid = $1
-      ORDER BY p.lastname, p.firstname`,
-      [doctorId]
+        COALESCE(d.firstname, '') as "doctorFirstName",
+        COALESCE(d.lastname, '') as "doctorLastName"
+      FROM patients p
+      LEFT JOIN prise_en_charge_patient pec ON pec.patientid = p.patientid
+      LEFT JOIN doctors d ON pec.responsableid = d.doctorid
+      LEFT JOIN status s ON pec.status_id = s.status_id
+      ORDER BY p.patientid, p.lastname, p.firstname`
     );
 
     return patients;

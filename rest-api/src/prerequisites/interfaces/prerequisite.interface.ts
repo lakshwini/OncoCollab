@@ -6,8 +6,8 @@
 export interface PrerequisiteItem {
   key: string;
   label: string;
-  status: 'pending' | 'done';
-  source: 'orthanc' | 'document';
+  status: 'pending' | 'in_progress' | 'done';
+  source: 'orthanc' | 'document' | null;
   reference_id: string | null;
 }
 

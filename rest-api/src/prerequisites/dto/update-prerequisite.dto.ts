@@ -5,8 +5,8 @@ export class UpdatePrerequisiteItemDto {
   @IsString()
   key: string;
 
-  @IsEnum(['pending', 'done'])
-  status: 'pending' | 'done';
+  @IsEnum(['pending', 'in_progress', 'done'])
+  status: 'pending' | 'in_progress' | 'done';
 
   @IsOptional()
   @IsString()

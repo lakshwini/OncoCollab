@@ -155,6 +155,7 @@ export function VideoConferenceAdvanced({
     connectionStatus,
     participants,
     mySocketId,
+    lastPrerequisiteUpdate,
   } = useWebRTC();
   const {
     stream: localStream,
@@ -351,6 +352,19 @@ export function VideoConferenceAdvanced({
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leftPanelTab, roomId]);
+
+  // ── Rafraîchissement automatique quand un prérequis est mis à jour en temps réel ──
+  useEffect(() => {
+    if (!lastPrerequisiteUpdate) return;
+    if (!roomId) return;
+    // Ne rafraîchir que si on a déjà chargé les prérequis
+    if (prereqData === null) return;
+
+    fetchMeetingPrerequisiteDetails(roomId, authToken ?? null)
+      .then(data => setPrereqData(data))
+      .catch(err => console.error('[VideoConf] ❌ Erreur refresh prérequis:', err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastPrerequisiteUpdate]);
 
   const handleSelectPrereqItem = useCallback(
     (item: PrerequisiteItemDetail, doctor: ParticipantDetail) => {

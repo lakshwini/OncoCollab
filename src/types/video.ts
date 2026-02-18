@@ -54,6 +54,14 @@ export interface ServerToClientEvents {
 
   // Erreurs génériques
   "error": (error: { message: string }) => void;
+
+  // Mise à jour temps réel d'un prérequis (broadcast à tous les participants de la room)
+  "prerequisite-updated": (data: {
+    meeting_id: string;
+    doctor_id: string;
+    key: string;
+    status: 'pending' | 'in_progress' | 'done';
+  }) => void;
 }
 
 // Événements que le Client envoie au Serveur
