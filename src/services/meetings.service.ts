@@ -339,27 +339,22 @@ export async function deleteMeeting(
 }
 
 /**
- * Reprogramme une réunion (crée une nouvelle, marque l'ancienne comme postponed)
+ * Reprogramme une réunion : met à jour uniquement la date de début
+ * Même meeting_id conservé, aucun doublon créé
  * Seul l'organizer ou co_admin peut reprogrammer
  */
 export async function rescheduleMeeting(
   meetingId: string,
-  rescheduleData: {
-    title?: string;
-    startTime: string;
-    endTime?: string;
-    description?: string;
-    postponedReason?: string;
-  },
+  scheduledAt: string,
   authToken: string | null,
-): Promise<{ originalMeetingId: string; newMeetingId: string }> {
+): Promise<Meeting> {
   const response = await fetch(createApiUrl(`/meetings/${meetingId}/reschedule`), {
     method: 'POST',
     headers: {
       ...createAuthHeaders(authToken),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(rescheduleData),
+    body: JSON.stringify({ scheduledAt }),
   });
 
   if (!response.ok) {

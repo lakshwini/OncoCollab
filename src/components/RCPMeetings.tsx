@@ -78,16 +78,16 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
     }
   };
 
-  // Fonction pour reprogrammer une réunion
+  // Fonction pour reprogrammer une réunion (simple UPDATE de la date)
   const handleRescheduleMeeting = async () => {
     if (!reschedulingMeeting || !rescheduleDate || !rescheduleTime || isRescheduling) return;
 
     setIsRescheduling(true);
     try {
-      const startTime = new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString();
+      const scheduledAt = new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString();
       await rescheduleMeeting(
         reschedulingMeeting.id,
-        { startTime, postponedReason: language === 'fr' ? 'Reprogrammée' : 'Rescheduled' },
+        scheduledAt,
         authToken || null,
       );
       toast.success(language === 'fr' ? 'Réunion reprogrammée avec succès' : 'Meeting rescheduled successfully');
@@ -409,11 +409,6 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {meeting.status === 'postponed' && (
-                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
-                      {language === 'fr' ? 'Reportée' : 'Postponed'}
-                    </Badge>
-                  )}
                   <Button variant="outline" size="sm">
                     {t.meetings.report}
                   </Button>

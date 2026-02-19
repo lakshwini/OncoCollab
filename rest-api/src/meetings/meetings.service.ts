@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Meeting } from './entities/meeting.entity';
@@ -758,8 +758,28 @@ export class MeetingsService {
   }
 
   /**
+   * Met à jour uniquement la date de début d'une réunion existante
+   * Aucune création de nouvelle réunion, aucun changement de statut
+   */
+  async updateMeetingDate(id: string, scheduledAt: string): Promise<MeetingWithParticipants> {
+    const meeting = await this.findOne(id);
+    if (!meeting) {
+      throw new NotFoundException(`Réunion ${id} non trouvée`);
+    }
+
+    await this.dataSource.query(
+      `UPDATE meetings SET start_time = $1, updated_at = NOW() WHERE id = $2`,
+      [new Date(scheduledAt), id],
+    );
+
+    console.log(`[MeetingsService] Date mise à jour pour la réunion ${id} → ${scheduledAt}`);
+    return this.findOne(id);
+  }
+
+  /**
    * Reprogramme une réunion: crée une nouvelle réunion avec les mêmes patients/participants
    * L'ancienne réunion passe en status "postponed"
+   * Utilise une transaction PostgreSQL pour garantir la cohérence des données
    */
   async rescheduleMeeting(
     originalMeetingId: string,
@@ -772,83 +792,139 @@ export class MeetingsService {
     },
     createdBy: string,
   ): Promise<{ originalMeetingId: string; newMeetingId: string }> {
-    // 1. Récupérer l'ancienne réunion
+    // Vérifier que la réunion existe avant de démarrer la transaction
     const original = await this.findOne(originalMeetingId);
     if (!original) {
-      throw new Error(`Réunion ${originalMeetingId} non trouvée`);
+      throw new NotFoundException(`Réunion ${originalMeetingId} non trouvée`);
     }
 
-    // 2. Marquer l'ancienne comme "postponed"
-    await this.updateMeeting(originalMeetingId, {
-      status: 'postponed',
-      postponedReason: rescheduleData.postponedReason || 'Reprogrammée',
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // 3. Récupérer les participants avec leurs rôles
-    const participantsRaw = await this.dataSource.query(
-      `SELECT mp.doctor_id, COALESCE(mr.role, 'participant') as role, mp.invitation_status
-       FROM meeting_participants mp
-       LEFT JOIN meeting_roles mr ON mr.meeting_id = mp.meeting_id AND mr.doctor_id = mp.doctor_id
-       WHERE mp.meeting_id = $1`,
-      [originalMeetingId],
-    );
+    let newMeetingId = '';
 
-    const participants = participantsRaw.map((p: any) => ({
-      doctorId: p.doctor_id,
-      role: p.role,
-      invitationStatus: 'invited',
-    }));
+    try {
+      // 1. Marquer l'ancienne réunion comme "postponed"
+      await queryRunner.query(
+        `UPDATE meetings SET status = 'postponed', postponed_reason = $1, updated_at = NOW() WHERE id = $2`,
+        [rescheduleData.postponedReason || 'Reprogrammée', originalMeetingId],
+      );
 
-    // 4. Récupérer les patients
-    const patientsRaw = await this.dataSource.query(
-      `SELECT patient_id FROM meeting_patients WHERE meeting_id = $1 ORDER BY discussion_order`,
-      [originalMeetingId],
-    );
-    const patientIds = patientsRaw.map((p: any) => p.patient_id);
+      // 2. Récupérer les participants avec leurs rôles
+      const participantsRaw = await queryRunner.query(
+        `SELECT mp.doctor_id, COALESCE(mr.role, 'participant') as role
+         FROM meeting_participants mp
+         LEFT JOIN meeting_roles mr ON mr.meeting_id = mp.meeting_id AND mr.doctor_id = mp.doctor_id
+         WHERE mp.meeting_id = $1`,
+        [originalMeetingId],
+      );
 
-    // 5. Récupérer les prérequis MongoDB (pour recréer des prérequis vierges)
-    let prerequisites: any[] = [];
-    if (this.mongoDb) {
-      const prereqDoc = await this.mongoDb
-        .collection('meeting_prerequisites')
-        .findOne({ meeting_id: originalMeetingId });
+      // 3. Récupérer les patients
+      const patientsRaw = await queryRunner.query(
+        `SELECT patient_id FROM meeting_patients WHERE meeting_id = $1 ORDER BY discussion_order`,
+        [originalMeetingId],
+      );
+      const patientIds = patientsRaw.map((p: any) => p.patient_id);
 
-      if (prereqDoc && prereqDoc.doctors) {
-        prerequisites = prereqDoc.doctors.map((d: any) => ({
-          doctorId: d.doctor_id,
-          speciality: d.speciality,
-          items: d.items.map((item: any) => ({
-            key: item.key,
-            label: item.label,
-            label_fr: item.label_fr,
-            label_en: item.label_en,
-            status: 'pending', // Reset tous les statuts
-            source: item.source,
-          })),
-        }));
+      // 4. Créer la nouvelle réunion (même titre, nouvelle date)
+      const newMeetingResult = await queryRunner.query(
+        `INSERT INTO meetings (title, description, start_time, end_time, status, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'scheduled', $5, NOW(), NOW())
+         RETURNING id`,
+        [
+          rescheduleData.title || original.title,
+          rescheduleData.description ?? original.description,
+          rescheduleData.startTime,
+          rescheduleData.endTime ?? null,
+          createdBy,
+        ],
+      );
+      newMeetingId = newMeetingResult[0].id;
+
+      // 5. Copier les participants (sans doublons)
+      for (const p of participantsRaw) {
+        await queryRunner.query(
+          `INSERT INTO meeting_participants (meeting_id, doctor_id, invitation_status, created_at)
+           VALUES ($1, $2, 'invited', NOW())
+           ON CONFLICT (meeting_id, doctor_id) DO NOTHING`,
+          [newMeetingId, p.doctor_id],
+        );
+      }
+
+      // 6. Copier les rôles (organizer, co_admin)
+      for (const p of participantsRaw) {
+        if (p.role === 'organizer' || p.role === 'co_admin') {
+          await queryRunner.query(
+            `INSERT INTO meeting_roles (meeting_id, doctor_id, role, created_at, updated_at)
+             VALUES ($1, $2, $3, NOW(), NOW())
+             ON CONFLICT (meeting_id, doctor_id) DO UPDATE SET role = $3, updated_at = NOW()`,
+            [newMeetingId, p.doctor_id, p.role],
+          );
+        }
+      }
+
+      // 7. Copier les patients
+      for (let i = 0; i < patientIds.length; i++) {
+        await queryRunner.query(
+          `INSERT INTO meeting_patients (meeting_id, patient_id, discussion_order, created_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (meeting_id, patient_id) DO NOTHING`,
+          [newMeetingId, patientIds[i], i + 1],
+        );
+      }
+
+      await queryRunner.commitTransaction();
+      console.log(`[MeetingsService] Transaction committed: ${originalMeetingId} → ${newMeetingId}`);
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      console.error('[MeetingsService] Reschedule transaction rolled back:', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // Copier les prérequis MongoDB (hors transaction, best-effort)
+    if (this.mongoDb && newMeetingId) {
+      try {
+        const prereqDoc = await this.mongoDb
+          .collection('meeting_prerequisites')
+          .findOne({ meeting_id: originalMeetingId });
+
+        if (prereqDoc && prereqDoc.doctors) {
+          const patientsForNew = await this.dataSource.query(
+            `SELECT patient_id FROM meeting_patients WHERE meeting_id = $1`,
+            [newMeetingId],
+          );
+
+          for (const { patient_id } of patientsForNew) {
+            await this.mongoDb.collection('meeting_prerequisites').insertOne({
+              meeting_id: newMeetingId,
+              patient_id,
+              status: 'in_progress',
+              doctors: prereqDoc.doctors.map((d: any) => ({
+                doctor_id: d.doctor_id,
+                speciality: d.speciality,
+                items: d.items.map((item: any) => ({
+                  key: item.key,
+                  label: item.label,
+                  label_fr: item.label_fr || item.label,
+                  label_en: item.label_en || item.label,
+                  status: 'pending',
+                  source: item.source || null,
+                })),
+              })),
+            });
+          }
+          console.log(`[MeetingsService] Prérequis copiés dans MongoDB → ${newMeetingId}`);
+        }
+      } catch (mongoErr) {
+        console.error('[MeetingsService] Erreur MongoDB (non bloquante):', mongoErr);
+        // On ne bloque pas le reschedule pour une erreur MongoDB
       }
     }
 
-    // 6. Créer la nouvelle réunion
-    const newMeeting = await this.createMeeting(
-      {
-        title: rescheduleData.title || `${original.title} (reprogrammée)`,
-        description: rescheduleData.description || original.description,
-        startTime: rescheduleData.startTime,
-        endTime: rescheduleData.endTime || null,
-        status: 'scheduled',
-        patientIds,
-        participants,
-        prerequisites,
-      },
-      createdBy,
-    );
-
-    console.log(`[MeetingsService] Réunion ${originalMeetingId} reprogrammée → ${newMeeting.meetingId}`);
-
-    return {
-      originalMeetingId,
-      newMeetingId: newMeeting.meetingId,
-    };
+    console.log(`[MeetingsService] Réunion ${originalMeetingId} reprogrammée → ${newMeetingId}`);
+    return { originalMeetingId, newMeetingId };
   }
 }

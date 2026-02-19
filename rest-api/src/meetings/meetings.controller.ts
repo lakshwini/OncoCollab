@@ -39,7 +39,7 @@ export class MeetingsController {
    */
   @Get()
   async findAll(@Request() req: any) {
-    // ✅ CORRECTION CRITIQUE: Toujours filtrer par doctorId du JWT
+    // Toujours filtrer par doctorId du JWT
     const doctorId = req.user.doctorID || req.user.sub;
 
     if (!doctorId) {
@@ -131,23 +131,16 @@ export class MeetingsController {
   }
 
   /**
-   * Reprogramme une réunion pour le même patient
+   * Reprogramme une réunion : met à jour uniquement la date de début
    * POST /meetings/:id/reschedule
    *
-   * Crée une NOUVELLE réunion avec les mêmes patients et participants
-   * L'ancienne réunion passe en status "finished" ou "postponed"
+   * Même meeting_id, même participants, même statut — seule la date change
    * SÉCURITÉ: Seul l'organizer ou co_admin peut reprogrammer
    */
   @Post(':id/reschedule')
   async rescheduleMeeting(
     @Param('id') id: string,
-    @Body() rescheduleData: {
-      title?: string;
-      startTime: Date | string;
-      endTime?: Date | string;
-      description?: string;
-      postponedReason?: string;
-    },
+    @Body() body: { scheduledAt: string },
     @Request() req: any,
   ) {
     const doctorId = req.user.doctorID || req.user.sub;
@@ -157,7 +150,7 @@ export class MeetingsController {
       throw new ForbiddenException('Seul l\'organisateur ou co-admin peut reprogrammer cette réunion');
     }
 
-    return this.meetingsService.rescheduleMeeting(id, rescheduleData, doctorId);
+    return this.meetingsService.updateMeetingDate(id, body.scheduledAt);
   }
 
   /**

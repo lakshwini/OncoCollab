@@ -121,16 +121,6 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
         </div>
       </nav>
 
-      {/* Security Indicator */}
-      <div className="p-4 border-t border-gray-800">
-        <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
-          <div className="flex items-center gap-2 text-green-400">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span className="text-xs">{t.sidebar.secureConnection}</span>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">{t.sidebar.sslActive}</p>
-        </div>
-      </div>
     </aside>
   );
 }

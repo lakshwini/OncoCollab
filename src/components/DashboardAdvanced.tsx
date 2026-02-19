@@ -418,65 +418,8 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
             </CardContent>
           </Card>
 
-          {/* Quick Stats */}
-          <Card className="bg-[#1a1f2e] border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white">{t.dashboard.monthActivity}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">{t.dashboard.processedDossiers}</span>
-                  <span className="text-white">{stats.activeDossiers}/24</span>
-                </div>
-                <Progress value={(stats.activeDossiers / 24) * 100} className="h-2" />
-              </div>
-              <div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">{t.dashboard.completedRCP}</span>
-                  <span className="text-white">{meetings.length}/12</span>
-                </div>
-                <Progress value={(meetings.length / 12) * 100} className="h-2" />
-              </div>
-              <div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">{t.dashboard.validatedReports}</span>
-                  <span className="text-white">0/18</span>
-                </div>
-                <Progress value={0} className="h-2" />
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* System Status */}
-          <Card className="bg-[#1a1f2e] border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white">{t.dashboard.systemStatus}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">{t.dashboard.servers}</span>
-                </div>
-                <span className="text-sm text-green-400">{t.dashboard.operational}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">{t.dashboard.backup}</span>
-                </div>
-                <span className="text-sm text-green-400">{t.dashboard.active}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">AgentIA</span>
-                </div>
-                <span className="text-sm text-green-400">{t.dashboard.online}</span>
-              </div>
-            </CardContent>
-          </Card>
+
         </div>
       </div>
     </div>
