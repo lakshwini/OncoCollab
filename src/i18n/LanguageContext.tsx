@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { translations, Language, TranslationKeys } from './translations';
+import i18n from './i18n.config';
 
 const STORAGE_KEY = 'onco_collab_language';
 
@@ -17,12 +18,8 @@ interface LanguageProviderProps {
 
 export function LanguageProvider({ children }: LanguageProviderProps) {
   const [language, setLanguageState] = useState<Language>(() => {
-    // Récupérer la langue depuis localStorage au chargement
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'fr' || saved === 'en') {
-      return saved;
-    }
-    // Détecter la langue du navigateur
+    if (saved === 'fr' || saved === 'en') return saved;
     const browserLang = navigator.language.split('-')[0];
     return browserLang === 'en' ? 'en' : 'fr';
   });
@@ -30,11 +27,12 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem(STORAGE_KEY, lang);
+    i18n.changeLanguage(lang);
   };
 
-  // Sauvegarder dans localStorage quand la langue change
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, language);
+    i18n.changeLanguage(language);
   }, [language]);
 
   const value: LanguageContextType = {

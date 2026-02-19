@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { User } from '../App';
-import { Bell, Lock, Users, Globe, HelpCircle, Shield } from 'lucide-react';
+import { Bell, Lock, Users, Globe, HelpCircle, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
+import { authService } from '../services/auth.service';
+import { createApiUrl, createAuthHeaders } from '../config/api.config';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Switch } from './ui/switch';
@@ -33,6 +35,56 @@ export function Settings({ user }: SettingsProps) {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [platformNotifications, setPlatformNotifications] = useState(true);
   const [meetingReminders, setMeetingReminders] = useState(true);
+
+  // Password form state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+
+  const handlePasswordChange = async () => {
+    setPwdSuccess(null);
+    setPwdError(null);
+
+    if (!newPassword || !currentPassword) {
+      setPwdError(language === 'fr' ? 'Veuillez remplir tous les champs.' : 'Please fill in all fields.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwdError(language === 'fr' ? 'Les mots de passe ne correspondent pas.' : 'Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPwdError(language === 'fr' ? 'Le mot de passe doit contenir au moins 8 caractères.' : 'Password must be at least 8 characters.');
+      return;
+    }
+
+    try {
+      setPwdLoading(true);
+      const token = authService.getToken();
+      const response = await fetch(createApiUrl(`/doctors/me/password`), {
+        method: 'PATCH',
+        headers: { ...createAuthHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.message ?? (language === 'fr' ? 'Erreur lors de la mise à jour.' : 'Update failed.'));
+      }
+
+      setPwdSuccess(language === 'fr' ? 'Mot de passe mis à jour avec succès.' : 'Password updated successfully.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      setPwdError(err?.message ?? (language === 'fr' ? 'Erreur inattendue.' : 'Unexpected error.'));
+    } finally {
+      setPwdLoading(false);
+    }
+  };
 
   const users = [
     { id: '1', name: 'Dr. Laurent Martin', email: 'laurent.martin@hopital.fr', role: 'radiologue' },
@@ -134,21 +186,56 @@ export function Settings({ user }: SettingsProps) {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>{t.settings.security.currentPassword}</Label>
-                <Input type="password" placeholder="••••••••" />
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
               </div>
 
               <div className="space-y-2">
                 <Label>{t.settings.security.newPassword}</Label>
-                <Input type="password" placeholder="••••••••" />
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
               </div>
 
               <div className="space-y-2">
                 <Label>{t.settings.security.confirmPassword}</Label>
-                <Input type="password" placeholder="••••••••" />
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
               </div>
 
-              <Button className="bg-blue-600 hover:bg-blue-700">
-                {t.settings.security.updatePassword}
+              {pwdError && (
+                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {pwdError}
+                </div>
+              )}
+
+              {pwdSuccess && (
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  {pwdSuccess}
+                </div>
+              )}
+
+              <Button
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={handlePasswordChange}
+                disabled={pwdLoading}
+              >
+                {pwdLoading
+                  ? (language === 'fr' ? 'Mise à jour…' : 'Updating…')
+                  : t.settings.security.updatePassword}
               </Button>
             </CardContent>
           </Card>

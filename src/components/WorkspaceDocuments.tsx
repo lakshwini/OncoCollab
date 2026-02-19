@@ -398,27 +398,6 @@ export function WorkspaceDocuments({
             </Card>
           )}
 
-          <Card className="bg-[#1a1f2e] border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white">{t.workspace.storage}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-gray-400">{t.workspace.used}</span>
-                    <span className="text-white">{documents.length * 0.2} GB / 10 GB</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${(documents.length * 0.2 / 10) * 100}%` }}></div>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500">
-                  {t.workspace.dailyBackupEnabled}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

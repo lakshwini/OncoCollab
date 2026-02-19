@@ -16,7 +16,7 @@ export class UsersService {
     async create(createUserDto: CreateUserDto) {
         // Hashage du mot de passe
         createUserDto.password = await argon2.hash(createUserDto.password);
-       
+
         // Création avec TypeORM
         const newUser = this.userRepository.create(createUserDto);
         return await this.userRepository.save(newUser);

@@ -2,9 +2,11 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   UseGuards,
   Request,
+  Body,
   UploadedFile,
   UseInterceptors,
   Param,
@@ -13,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DataSource } from 'typeorm';
 import { DoctorsStorageService } from './doctors-storage.service';
+import { DoctorsService } from './doctors.service';
 
 @Controller('doctors')
 @UseGuards(JwtAuthGuard)
@@ -20,6 +23,7 @@ export class DoctorsController {
   constructor(
     private readonly dataSource: DataSource,
     private readonly storageService: DoctorsStorageService,
+    private readonly doctorsService: DoctorsService,
   ) {}
 
   @Get()
@@ -94,5 +98,18 @@ export class DoctorsController {
       profileImageUrl: url,
       initials,
     };
+  }
+
+  /**
+   * Change le mot de passe du médecin connecté
+   * PATCH /doctors/me/password
+   */
+  @Patch('me/password')
+  async changePassword(
+    @Request() req: any,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    const doctorId = req.user.doctorID || req.user.sub;
+    return this.doctorsService.changePassword(doctorId, body.currentPassword, body.newPassword);
   }
 }

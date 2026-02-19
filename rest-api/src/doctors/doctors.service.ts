@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Doctor } from './doctors.entity';
@@ -33,5 +33,17 @@ export class DoctorsService {
   async updatePassword(id: string, newPassword: string): Promise<void> {
     const hashedPassword = await argon2.hash(newPassword);
     await this.doctorsRepository.update(id, { password: hashedPassword });
+  }
+
+  async changePassword(doctorId: string, currentPassword: string, newPassword: string) {
+    const doctor = await this.doctorsRepository.findOne({ where: { doctorID: doctorId } });
+    if (!doctor) throw new NotFoundException('Médecin introuvable');
+
+    const isValid = await argon2.verify(doctor.password, currentPassword);
+    if (!isValid) throw new UnauthorizedException('Mot de passe actuel incorrect');
+
+    const hashedPassword = await argon2.hash(newPassword);
+    await this.doctorsRepository.update(doctorId, { password: hashedPassword });
+    return { success: true, message: 'Mot de passe mis à jour avec succès' };
   }
 }

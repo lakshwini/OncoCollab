@@ -1,148 +1,198 @@
 import { useState, useEffect } from 'react';
 import { Page, UserRole } from '../App';
-import { CheckCircle2, Circle, Video, ChevronDown, ChevronUp, AlertCircle, Loader2, Plus } from 'lucide-react';
+import {
+  CheckCircle2,
+  Circle,
+  Clock,
+  Video,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  AlertCircle,
+  Loader2,
+  Users,
+  Plus,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { useLanguage } from '../i18n';
-import { prerequisitesService } from '../services/prerequisites.service';
-import { MeetingPrerequisites, PrerequisiteItem } from '../types/prerequisites';
-import { authService } from '../services/auth.service';
+import {
+  prerequisitesService,
+  type MyMeetingPrerequisites,
+  type MyPrerequisiteItem,
+  type ParticipantPrerequisites,
+} from '../services/prerequisites.service';
 
-interface MyPrerequisitesProps {
+interface Props {
   userRole: UserRole;
   onNavigate: (page: Page) => void;
   onOpenScheduleModal?: () => void;
 }
 
-export function MyPrerequisites({ onNavigate, onOpenScheduleModal }: MyPrerequisitesProps) {
-  const { t, language } = useLanguage();
-  const [meetings, setMeetings] = useState<MeetingPrerequisites[]>([]);
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function statusColor(status: MyPrerequisiteItem['status']): string {
+  if (status === 'done') return '#22c55e';
+  if (status === 'in_progress') return '#f97316';
+  return '#ef4444';
+}
+
+function StatusIcon({ status }: { status: MyPrerequisiteItem['status'] }) {
+  if (status === 'done') return <CheckCircle2 className="w-4 h-4" style={{ color: '#22c55e' }} />;
+  if (status === 'in_progress') return <Clock className="w-4 h-4" style={{ color: '#f97316' }} />;
+  return <Circle className="w-4 h-4" style={{ color: '#ef4444' }} />;
+}
+
+function MeetingStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    scheduled: { label: 'Planifiée', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+    live: { label: 'En cours', className: 'bg-green-100 text-green-700 border-green-200' },
+    draft: { label: 'Brouillon', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+    finished: { label: 'Terminée', className: 'bg-slate-100 text-slate-600 border-slate-200' },
+    postponed: { label: 'Reportée', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  };
+  const { label, className } = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-600' };
+  return <Badge className={`text-xs ${className}`}>{label}</Badge>;
+}
+
+// ── Composant principal ───────────────────────────────────────────────────────
+
+export function MyPrerequisites({ onNavigate, onOpenScheduleModal }: Props) {
+  const { t } = useLanguage();
+  const [meetings, setMeetings] = useState<MyMeetingPrerequisites[]>([]);
   const [expandedMeetings, setExpandedMeetings] = useState<Set<string>>(new Set());
+  const [adminExpanded, setAdminExpanded] = useState<Set<string>>(new Set());
+  const [adminData, setAdminData] = useState<Record<string, ParticipantPrerequisites[]>>({});
+  const [adminLoading, setAdminLoading] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [updatingItems, setUpdatingItems] = useState<Set<string>>(new Set());
 
-  // Charger les prérequis au montage du composant
   useEffect(() => {
-    loadMyPrerequisites();
+    load();
   }, []);
 
-  const loadMyPrerequisites = async () => {
+  const load = async () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('[MyPrerequisites] Chargement des prérequis...');
       const data = await prerequisitesService.getMyPrerequisites();
-      console.log('[MyPrerequisites] Données reçues:', data);
       setMeetings(data);
-      // Expand la première réunion par défaut
+      // Ouvrir la première réunion par défaut
       if (data.length > 0) {
         setExpandedMeetings(new Set([data[0].meeting_id]));
       }
     } catch (err: any) {
-      console.error('[MyPrerequisites] Erreur complète:', err);
-      const errorMsg = err?.message || 'Unknown error';
-      setError(`${t.myPrerequisites.errorLoading} (${errorMsg})`);
+      setError(err?.message ?? 'Erreur de chargement');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleMeeting = (meetingId: string) => {
+  const toggleMeeting = (id: string) =>
     setExpandedMeetings((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(meetingId)) {
-        newSet.delete(meetingId);
-      } else {
-        newSet.add(meetingId);
-      }
-      return newSet;
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
     });
-  };
 
-  const togglePrerequisite = async (meetingId: string, item: PrerequisiteItem) => {
-    const updateKey = `${meetingId}-${item.key}`;
-    if (updatingItems.has(updateKey)) return; // Éviter les doubles clics
+  const handleToggle = async (meetingId: string, item: MyPrerequisiteItem) => {
+    const newCompleted = !item.completed;
+    const newStatus: MyPrerequisiteItem['status'] = newCompleted ? 'done' : 'pending';
+
+    // Optimistic update
+    setMeetings((prev) =>
+      prev.map((m) =>
+        m.meeting_id !== meetingId
+          ? m
+          : {
+              ...m,
+              prerequisites: m.prerequisites.map((p) =>
+                p.id === item.id ? { ...p, completed: newCompleted, status: newStatus } : p,
+              ),
+            },
+      ),
+    );
 
     try {
-      setUpdatingItems((prev) => new Set(prev).add(updateKey));
-
-      const newStatus = item.status === 'done' ? 'pending' : 'done';
-
-      // Mettre à jour via l'API
-      const updatedMeeting = await prerequisitesService.updateMyPrerequisites(meetingId, {
-        items: [{ key: item.key, status: newStatus, reference_id: item.reference_id }],
-      });
-
-      // Mettre à jour l'état local
-      setMeetings((prevMeetings) =>
-        prevMeetings.map((m) => (m.meeting_id === meetingId ? updatedMeeting : m))
+      await prerequisitesService.togglePrerequisiteItem(meetingId, item.id, newCompleted);
+    } catch (err: any) {
+      // Revert on error
+      setMeetings((prev) =>
+        prev.map((m) =>
+          m.meeting_id !== meetingId
+            ? m
+            : {
+                ...m,
+                prerequisites: m.prerequisites.map((p) =>
+                  p.id === item.id ? { ...p, completed: item.completed, status: item.status } : p,
+                ),
+              },
+        ),
       );
-    } catch (err) {
-      console.error('Erreur lors de la mise à jour du prérequis:', err);
-      setError(t.myPrerequisites.errorUpdating);
-    } finally {
-      setUpdatingItems((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(updateKey);
-        return newSet;
-      });
+      setError(err?.message ?? 'Impossible de mettre à jour le prérequis');
     }
   };
 
-  const getTotalStats = () => {
-    let totalCompleted = 0;
-    let totalPrerequisites = 0;
+  const loadAdminView = async (meetingId: string) => {
+    // Toggle collapse if already loaded
+    if (adminExpanded.has(meetingId)) {
+      setAdminExpanded((prev) => { const s = new Set(prev); s.delete(meetingId); return s; });
+      return;
+    }
 
-    meetings.forEach((meeting) => {
-      // Compter les prérequis du médecin connecté
-      const user = authService.getCurrentUser();
-      const myDoctor = meeting.doctors.find((d) => d.doctor_id === user?.id);
-      if (myDoctor) {
-        totalCompleted += myDoctor.progress.completed;
-        totalPrerequisites += myDoctor.progress.total;
-      }
-    });
-
-    const percentage = totalPrerequisites > 0 ? (totalCompleted / totalPrerequisites) * 100 : 0;
-    return { totalCompleted, totalPrerequisites, percentage };
+    // Load participants
+    setAdminLoading((prev) => new Set(prev).add(meetingId));
+    try {
+      const participants = await prerequisitesService.getAllParticipantsPrerequisites(meetingId);
+      setAdminData((prev) => ({ ...prev, [meetingId]: participants }));
+      setAdminExpanded((prev) => new Set(prev).add(meetingId));
+    } catch (err: any) {
+      setError(err?.message ?? 'Impossible de charger les prérequis des participants');
+    } finally {
+      setAdminLoading((prev) => { const s = new Set(prev); s.delete(meetingId); return s; });
+    }
   };
+
+  // ── Stats globales ──────────────────────────────────────────────────────────
+
+  const totalDone = meetings.reduce(
+    (acc, m) => acc + m.prerequisites.filter((p) => p.status === 'done').length,
+    0,
+  );
+  const totalAll = meetings.reduce((acc, m) => acc + m.prerequisites.length, 0);
+  const globalPct = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-screen">
+      <div className="p-6 flex items-center justify-center min-h-64">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Chargement de vos prérequis...</p>
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Chargement de vos prérequis…</p>
         </div>
       </div>
     );
   }
 
-  const totalStats = getTotalStats();
-  const user = authService.getCurrentUser();
-
   return (
     <div className="p-6 space-y-6">
-      {/* Page Header */}
+
+      {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-gray-900 mb-1">{t.myPrerequisites.title}</h1>
-          <p className="text-gray-600">{t.myPrerequisites.subtitle}</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">{t.myPrerequisites.title}</h1>
+          <p className="text-gray-500 text-sm">{t.myPrerequisites.subtitle}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex gap-2">
           <Button onClick={() => onNavigate('reunions')} className="bg-blue-600 hover:bg-blue-700">
             <Video className="w-4 h-4 mr-2" />
             {t.myPrerequisites.viewMeetings}
           </Button>
           {onOpenScheduleModal && (
-            <Button
-              onClick={onOpenScheduleModal}
-              className="bg-green-600 hover:bg-green-700"
-            >
+            <Button onClick={onOpenScheduleModal} className="bg-green-600 hover:bg-green-700">
               <Plus className="w-4 h-4 mr-2" />
               Programmer une RCP
             </Button>
@@ -150,195 +200,255 @@ export function MyPrerequisites({ onNavigate, onOpenScheduleModal }: MyPrerequis
         </div>
       </div>
 
-      {/* Erreur Alert */}
+      {/* Erreur */}
       {error && (
         <Alert className="border-red-200 bg-red-50">
           <AlertCircle className="h-4 w-4 text-red-600" />
           <AlertDescription className="text-red-800">
             {error}
-            <Button
-              variant="link"
-              className="ml-2 text-red-600 underline"
-              onClick={loadMyPrerequisites}
-            >
+            <Button variant="link" className="ml-2 text-red-600 underline p-0 h-auto" onClick={load}>
               {t.myPrerequisites.retry}
             </Button>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Global Stats Card */}
+      {/* Carte progression globale */}
       <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-200">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-gray-900 mb-1">{t.myPrerequisites.globalProgress}</h3>
-              <p className="text-sm text-gray-600">
-                {totalStats.totalCompleted} / {totalStats.totalPrerequisites}{' '}
-                {t.myPrerequisites.prerequisitesCompleted}
+              <p className="font-semibold text-gray-800">{t.myPrerequisites.globalProgress}</p>
+              <p className="text-sm text-gray-500">
+                {totalDone} / {totalAll} {t.myPrerequisites.prerequisitesCompleted}
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-3xl text-blue-600">{Math.round(totalStats.percentage)}%</p>
-            </div>
+            <span className="text-3xl font-bold text-blue-600">{globalPct}%</span>
           </div>
-          <Progress value={totalStats.percentage} className="h-3" />
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all"
+              style={{ width: `${globalPct}%` }}
+            />
+          </div>
         </CardContent>
       </Card>
 
-      {/* Meetings List */}
+      {/* Liste des réunions */}
       <div className="space-y-4">
-        <h2 className="text-gray-900">
+        <h2 className="font-semibold text-gray-700">
           {t.myPrerequisites.upcomingMeetings} ({meetings.length})
         </h2>
 
         {meetings.length === 0 ? (
           <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-gray-600">{t.myPrerequisites.noMeetings}</p>
+            <CardContent className="p-8 text-center text-gray-500">
+              {t.myPrerequisites.noMeetings}
             </CardContent>
           </Card>
         ) : (
           meetings.map((meeting) => {
-            const isExpanded = expandedMeetings.has(meeting.meeting_id);
-            const myDoctor = meeting.doctors.find((d) => d.doctor_id === user?.id);
-
-            if (!myDoctor) return null; // Ne pas afficher si pas de prérequis pour ce médecin
-
-            const stats = myDoctor.progress;
-            const isComplete = stats.completed === stats.total;
+            const isOpen = expandedMeetings.has(meeting.meeting_id);
+            const done = meeting.prerequisites.filter((p) => p.status === 'done').length;
+            const total = meeting.prerequisites.length;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const allDone = total > 0 && done === total;
+            const adminOpen = adminExpanded.has(meeting.meeting_id);
+            const loadingAdmin = adminLoading.has(meeting.meeting_id);
 
             return (
-              <Card key={meeting.meeting_id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div
-                    className="flex items-start justify-between cursor-pointer"
-                    onClick={() => toggleMeeting(meeting.meeting_id)}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <CardTitle>Réunion #{meeting.meeting_id}</CardTitle>
-                        {isComplete ? (
-                          <Badge className="bg-green-100 text-green-700 border-green-200">
-                            ✓ {t.common.ready}
+              <Card
+                key={meeting.meeting_id}
+                className={`transition-shadow hover:shadow-md ${allDone ? 'border-green-200' : ''}`}
+              >
+                {/* Header réunion */}
+                <CardHeader
+                  className="cursor-pointer select-none pb-3"
+                  onClick={() => toggleMeeting(meeting.meeting_id)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <CardTitle className="text-base truncate">{meeting.meeting_title}</CardTitle>
+                        <MeetingStatusBadge status={meeting.meeting_status} />
+                        {meeting.is_admin && (
+                          <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">
+                            Admin
+                          </Badge>
+                        )}
+                        {allDone ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                            ✓ Complété
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                            {stats.completed}/{stats.total} {t.common.completed}
+                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-200">
+                            {done}/{total}
                           </Badge>
                         )}
                       </div>
-                      <div className="space-y-1 text-sm text-gray-600">
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">Patient:</span>
-                            <span>{meeting.patient_id}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">Spécialité:</span>
-                            <span>{myDoctor.speciality}</span>
-                          </div>
+
+                      {/* Barre de progression */}
+                      {total > 0 && (
+                        <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
+                          <div
+                            className={`h-1.5 rounded-full transition-all ${allDone ? 'bg-green-500' : 'bg-blue-500'}`}
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
-                      </div>
-                      <div className="mt-3">
-                        <Progress value={stats.percentage} className="h-2" />
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      {isExpanded ? (
-                        <ChevronUp className="w-5 h-5" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5" />
                       )}
-                    </Button>
+                    </div>
+
+                    {isOpen
+                      ? <ChevronUp className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                      : <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />}
                   </div>
                 </CardHeader>
 
-                {isExpanded && (
-                  <CardContent>
-                    <div className="space-y-2 pt-2 border-t border-gray-200">
-                      {myDoctor.items.map((item) => {
-                        const isChecked = item.status === 'done';
-                        const updateKey = `${meeting.meeting_id}-${item.key}`;
-                        const isUpdating = updatingItems.has(updateKey);
-                        
-                        // Display label in the correct language
-                        const displayLabel = language === 'fr' 
-                          ? (item.label_fr || item.label) 
-                          : (item.label_en || item.label);
+                {/* Corps expandable */}
+                {isOpen && (
+                  <CardContent className="pt-0 space-y-3">
 
-                        return (
-                          <div
-                            key={item.key}
-                            className={`p-3 rounded-lg border-2 transition-all cursor-pointer hover:shadow-md ${
-                              isChecked
-                                ? 'bg-green-50 border-green-200'
-                                : 'bg-white border-gray-200 hover:border-blue-300'
-                            } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
-                            onClick={() => !isUpdating && togglePrerequisite(meeting.meeting_id, item)}
+                    {/* Mes prérequis */}
+                    {total === 0 ? (
+                      <p className="text-sm text-gray-400 italic py-2">
+                        Aucun prérequis défini pour cette réunion.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {meeting.prerequisites.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleToggle(meeting.meeting_id, item); }}
+                            className="w-full flex items-center gap-3 p-2 rounded-lg text-left transition-opacity hover:opacity-80 active:opacity-60"
+                            style={{
+                              cursor: 'pointer',
+                              backgroundColor:
+                                item.status === 'done'
+                                  ? 'rgba(34,197,94,0.08)'
+                                  : item.status === 'in_progress'
+                                  ? 'rgba(249,115,22,0.08)'
+                                  : 'rgba(239,68,68,0.06)',
+                              border: 'none',
+                            }}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="flex-shrink-0">
-                                {isUpdating ? (
-                                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                                ) : isChecked ? (
-                                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                                ) : (
-                                  <Circle className="w-5 h-5 text-gray-400" />
-                                )}
-                              </div>
-                              <div className="flex-1">
-                                <span
-                                  className={`text-sm ${
-                                    isChecked ? 'text-green-900' : 'text-gray-900'
-                                  }`}
-                                >
-                                  {displayLabel}
-                                </span>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <Badge variant="outline" className="text-xs">
-                                    {item.source === 'orthanc' ? '📷 Imagerie' : '📄 Document'}
-                                  </Badge>
-                                  {item.reference_id && (
-                                    <span className="text-xs text-gray-500">
-                                      Réf: {item.reference_id}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                            <StatusIcon status={item.status} />
+                            <span
+                              className="text-sm flex-1"
+                              style={{ color: statusColor(item.status) }}
+                            >
+                              {item.label}
+                            </span>
+                            <span
+                              className="text-xs font-medium capitalize"
+                              style={{ color: statusColor(item.status) }}
+                            >
+                              {item.status === 'done'
+                                ? 'Fait'
+                                : item.status === 'in_progress'
+                                ? 'En cours'
+                                : 'À faire'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                    <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
+                    {/* Bouton admin */}
+                    {meeting.is_admin && (
+                      <div className="pt-2 border-t border-gray-100">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            loadAdminView(meeting.meeting_id);
+                          }}
+                          disabled={loadingAdmin}
+                        >
+                          {loadingAdmin ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          ) : (
+                            <Users className="w-4 h-4 mr-2" />
+                          )}
+                          {adminOpen
+                            ? 'Masquer les prérequis des participants'
+                            : 'Voir les prérequis des participants'}
+                          {!loadingAdmin && (
+                            adminOpen
+                              ? <ChevronUp className="w-4 h-4 ml-auto" />
+                              : <ChevronRight className="w-4 h-4 ml-auto" />
+                          )}
+                        </Button>
+
+                        {/* Vue participants */}
+                        {adminOpen && adminData[meeting.meeting_id] && (
+                          <div className="mt-3 space-y-2">
+                            {adminData[meeting.meeting_id].length === 0 ? (
+                              <p className="text-sm text-gray-400 text-center py-2">
+                                Aucun participant trouvé.
+                              </p>
+                            ) : (
+                              adminData[meeting.meeting_id].map((participant, pIdx) => {
+                                const pDone = participant.prerequisites.filter((x) => x.status === 'done').length;
+                                const pTotal = participant.prerequisites.length;
+                                const pPct = pTotal > 0 ? Math.round((pDone / pTotal) * 100) : 0;
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="border border-gray-200 rounded-lg p-3 bg-gray-50"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-800">
+                                          {participant.doctor_name}
+                                        </p>
+                                        <p className="text-xs text-gray-500">{participant.doctor_email}</p>
+                                      </div>
+                                      <span className="text-xs text-gray-500">
+                                        {pDone}/{pTotal} ({pPct}%)
+                                      </span>
+                                    </div>
+
+                                    {pTotal === 0 ? (
+                                      <p className="text-xs text-gray-400 italic">
+                                        Aucun prérequis défini.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {participant.prerequisites.map((item, iIdx) => (
+                                          <div
+                                            key={iIdx}
+                                            className="flex items-center gap-2 text-sm"
+                                          >
+                                            <StatusIcon status={item.status} />
+                                            <span style={{ color: statusColor(item.status) }}>
+                                              {item.label}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-2">
                       <Button
                         variant="outline"
+                        size="sm"
                         className="flex-1"
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                          onNavigate('reunions');
-                        }}
+                        onClick={(e) => { e.stopPropagation(); onNavigate('reunions'); }}
                       >
                         {t.myPrerequisites.viewDetails}
-                      </Button>
-                      <Button
-                        className={`flex-1 ${
-                          isComplete
-                            ? 'bg-green-600 hover:bg-green-700'
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                          if (isComplete) {
-                            onNavigate('video');
-                          }
-                        }}
-                        disabled={!isComplete}
-                      >
-                        <Video className="w-4 h-4 mr-2" />
-                        {isComplete ? t.common.join : t.myPrerequisites.prerequisitesIncomplete}
                       </Button>
                     </div>
                   </CardContent>
@@ -349,11 +459,11 @@ export function MyPrerequisites({ onNavigate, onOpenScheduleModal }: MyPrerequis
         )}
       </div>
 
-      {/* Help Section */}
+      {/* Aide */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <p className="text-sm text-blue-900">
-            💡 <strong>{t.myPrerequisites.tip}:</strong> {t.myPrerequisites.tipText}
+            💡 <strong>{t.myPrerequisites.tip} :</strong> {t.myPrerequisites.tipText}
           </p>
         </CardContent>
       </Card>

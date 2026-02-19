@@ -52,26 +52,41 @@ export class PrerequisitesController {
 
   /**
    * GET /prerequisites/meeting/:meetingId/all
-   * Récupère TOUS les prérequis d'une réunion (admin seulement)
+   * Vue admin : prérequis de tous les participants (organisateur / co-admin uniquement)
+   * Retourne : [{ doctor_name, doctor_email, prerequisites: [{label, status}] }]
    */
   @Get('meeting/:meetingId/all')
   async getAllMeetingPrerequisites(@Param('meetingId') meetingId: string, @Request() req) {
     const doctorId = req.user.doctorID || req.user.sub;
-    return this.prerequisitesService.getMeetingPrerequisites(meetingId, doctorId, true);
+    return this.prerequisitesService.getAllParticipantsPrerequisites(meetingId, doctorId);
   }
 
   /**
    * PATCH /prerequisites/meeting/:meetingId
-   * Met à jour les prérequis du médecin connecté pour une réunion
+   * Accepte deux formats :
+   *   - { itemId, completed }   → toggle simple (MyPrerequisites.tsx)
+   *   - { items: [...] }        → mise à jour batch (MeetingPrerequisitesCheck.tsx)
    */
   @Patch('meeting/:meetingId')
   async updateMyPrerequisites(
     @Param('meetingId') meetingId: string,
-    @Body() updateDto: UpdatePrerequisitesDto,
+    @Body() body: any,
     @Request() req,
   ) {
     const doctorId = req.user.doctorID || req.user.sub;
-    return this.prerequisitesService.updateMyPrerequisites(meetingId, doctorId, updateDto);
+
+    // Format simple : { itemId: string, completed: boolean }
+    if (typeof body.itemId === 'string') {
+      return this.prerequisitesService.togglePrerequisiteItem(
+        meetingId,
+        doctorId,
+        body.itemId,
+        Boolean(body.completed),
+      );
+    }
+
+    // Format batch : { items: [{key, status, ...}] }
+    return this.prerequisitesService.updateMyPrerequisites(meetingId, doctorId, body);
   }
 
   /**

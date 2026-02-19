@@ -41,6 +41,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
   const [reschedulingMeeting, setReschedulingMeeting] = useState<{ id: string; title: string } | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
+  const [isRescheduling, setIsRescheduling] = useState(false);
 
   // Fonction pour charger et afficher les détails d'une réunion
   const handleOpenDetails = async (meetingId: string) => {
@@ -79,8 +80,9 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
 
   // Fonction pour reprogrammer une réunion
   const handleRescheduleMeeting = async () => {
-    if (!reschedulingMeeting || !rescheduleDate || !rescheduleTime) return;
+    if (!reschedulingMeeting || !rescheduleDate || !rescheduleTime || isRescheduling) return;
 
+    setIsRescheduling(true);
     try {
       const startTime = new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString();
       await rescheduleMeeting(
@@ -95,6 +97,8 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
       await loadData();
     } catch (err: any) {
       toast.error(err.message || (language === 'fr' ? 'Erreur lors de la reprogrammation' : 'Error rescheduling meeting'));
+    } finally {
+      setIsRescheduling(false);
     }
   };
 
@@ -193,11 +197,11 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
 
   // Séparer les réunions à venir et passées
   const upcomingMeetings = meetings
-    .filter(m => m.status !== 'finished')
+    .filter(m => m.status !== 'finished' && m.status !== 'postponed')
     .map(transformMeetingData);
 
   const pastMeetings = meetings
-    .filter(m => m.status === 'finished')
+    .filter(m => m.status === 'finished' || m.status === 'postponed')
     .map(m => {
       const transformed = transformMeetingData(m);
       return {
@@ -207,7 +211,7 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
         time: transformed.time,
         participants: m.participantCount,
         patientCount: 1,
-        status: 'completed',
+        status: m.status,
       };
     });
 
@@ -404,7 +408,12 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
+                  {meeting.status === 'postponed' && (
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
+                      {language === 'fr' ? 'Reportée' : 'Postponed'}
+                    </Badge>
+                  )}
                   <Button variant="outline" size="sm">
                     {t.meetings.report}
                   </Button>
@@ -546,16 +555,18 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
               </div>
             </div>
             <div className="flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => { setReschedulingMeeting(null); setRescheduleDate(''); setRescheduleTime(''); }}>
+              <Button variant="outline" disabled={isRescheduling} onClick={() => { setReschedulingMeeting(null); setRescheduleDate(''); setRescheduleTime(''); }}>
                 {language === 'fr' ? 'Annuler' : 'Cancel'}
               </Button>
               <Button
                 className="bg-orange-600 hover:bg-orange-700 text-white"
                 onClick={handleRescheduleMeeting}
-                disabled={!rescheduleDate || !rescheduleTime}
+                disabled={!rescheduleDate || !rescheduleTime || isRescheduling}
               >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                {language === 'fr' ? 'Reprogrammer' : 'Reschedule'}
+                <RefreshCw className={`w-4 h-4 mr-2 ${isRescheduling ? 'animate-spin' : ''}`} />
+                {isRescheduling
+                  ? (language === 'fr' ? 'Reprogrammation...' : 'Rescheduling...')
+                  : (language === 'fr' ? 'Reprogrammer' : 'Reschedule')}
               </Button>
             </div>
           </div>

@@ -1,4 +1,12 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+  Logger,
+} from '@nestjs/common';
 import { InjectConnection } from '@nestjs/typeorm';
 import { Connection } from 'typeorm';
 import { Db } from 'mongodb';
@@ -115,85 +123,171 @@ export class PrerequisitesService {
   }
 
   /**
-   * Récupère tous les prérequis du médecin connecté (toutes ses réunions)
-   * Retourne TOUTES les réunions du médecin, même sans données MongoDB
+   * GET /prerequisites/me
+   * Retourne toutes les réunions du médecin avec SES prérequis et son rôle.
+   * Format : [{ meeting_id, meeting_title, meeting_status, is_admin, prerequisites: [{label,status}] }]
    */
-  async getMyPrerequisites(doctorId: string): Promise<MeetingPrerequisitesResponse[]> {
-    this.logger.log(`Récupération des prérequis pour docteur: ${doctorId}`);
+  async getMyPrerequisites(doctorId: string) {
+    this.logger.log(`getMyPrerequisites: doctor=${doctorId}`);
 
-    // 1. Récupérer les réunions du médecin avec sa spécialité (PostgreSQL)
+    // Une seule requête : meetings + rôle du médecin (pas de DISTINCT + ORDER BY incompatibles)
     const meetingsQuery = `
       SELECT
-        m.id as meeting_id,
-        m.title,
-        m.start_time,
-        COALESCE(r.rolename, 'Non spécifié') as speciality
+        m.id           AS meeting_id,
+        m.title        AS meeting_title,
+        m.status       AS meeting_status,
+        mr.role        AS meeting_role
       FROM meetings m
       INNER JOIN meeting_participants mp ON m.id = mp.meeting_id
-      INNER JOIN doctors d ON mp.doctor_id = d.doctorid
-      LEFT JOIN roles r ON d.roleid = r.roleid
+      LEFT JOIN meeting_roles mr
+             ON mr.meeting_id = m.id AND mr.doctor_id = $1
       WHERE mp.doctor_id = $1
       ORDER BY m.start_time DESC NULLS LAST
     `;
-
     const meetings = await this.pgConnection.query(meetingsQuery, [doctorId]);
-    this.logger.log(`${meetings.length} réunions trouvées pour docteur ${doctorId}`);
+    this.logger.log(`${meetings.length} réunion(s) trouvée(s) pour ${doctorId}`);
 
-    // 2. Pour chaque réunion, récupérer les prérequis depuis MongoDB
     const results = await Promise.all(
       meetings.map(async (meeting: any) => {
         try {
-          const prereqs = await this.mongoDb
-            .collection<MeetingPrerequisites>('meeting_prerequisites')
+          const isAdmin =
+            meeting.meeting_role === 'organizer' ||
+            meeting.meeting_role === 'co_admin';
+
+          // Schéma MongoDB existant : { meeting_id, doctors:[{doctor_id, items:[{key,label,status}]}] }
+          const mongoDoc = await this.mongoDb
+            .collection('meeting_prerequisites')
             .findOne({ meeting_id: meeting.meeting_id });
 
-          if (prereqs) {
-            // Données MongoDB trouvées → utiliser les prérequis du médecin
-            const doctorPrereq = prereqs.doctors.find(d => d.doctor_id === doctorId);
-            const items = doctorPrereq?.items || [];
-            const progress = this.calculateProgress(items);
+          const doctorData = mongoDoc?.doctors?.find(
+            (d: any) => d.doctor_id === doctorId,
+          );
 
-            return {
-              meeting_id: meeting.meeting_id,
-              patient_id: prereqs.patient_id || '',
-              status: prereqs.status,
-              doctors: [{
-                doctor_id: doctorId,
-                speciality: doctorPrereq?.speciality || meeting.speciality,
-                items,
-                progress,
-              }],
-              globalProgress: progress,
-            } as MeetingPrerequisitesResponse;
-          }
+          const prerequisites = (doctorData?.items ?? []).map((item: any) => ({
+            id: item.key,           // identifiant utilisé pour le toggle
+            label: item.label,
+            status: item.status as 'pending' | 'in_progress' | 'done',
+            completed: item.status === 'done',
+          }));
 
-          // Pas de données MongoDB → retourner la réunion avec liste vide
           return {
             meeting_id: meeting.meeting_id,
-            patient_id: '',
-            status: 'in_progress' as const,
-            doctors: [{
-              doctor_id: doctorId,
-              speciality: meeting.speciality,
-              items: [],
-              progress: { total: 0, completed: 0, percentage: 0 },
-            }],
-            globalProgress: { total: 0, completed: 0, percentage: 0 },
-          } as MeetingPrerequisitesResponse;
-        } catch (error) {
-          this.logger.error(`Erreur pour meeting ${meeting.meeting_id}:`, error);
+            meeting_title: meeting.meeting_title,
+            meeting_status: meeting.meeting_status,
+            is_admin: isAdmin,
+            prerequisites,
+          };
+        } catch (err) {
+          this.logger.error(`Erreur meeting ${meeting.meeting_id}:`, err);
           return null;
         }
       }),
     );
 
-    const validResults = results.filter(r => r !== null) as MeetingPrerequisitesResponse[];
-    this.logger.log(`Retour de ${validResults.length} réunions`);
-    return validResults;
+    return results.filter(Boolean);
   }
 
   /**
-   * Met à jour les prérequis d'un médecin
+   * GET /prerequisites/meeting/:id/all
+   * Vue admin : prérequis de TOUS les participants de la réunion.
+   * Format : [{ doctor_name, doctor_email, prerequisites: [{label,status}] }]
+   */
+  async getAllParticipantsPrerequisites(meetingId: string, requestingDoctorId: string) {
+    // Vérifier que le demandeur est organisateur ou co-admin
+    const roleResult = await this.pgConnection.query(
+      `SELECT role FROM meeting_roles WHERE meeting_id = $1 AND doctor_id = $2`,
+      [meetingId, requestingDoctorId],
+    );
+    const role: string | undefined = roleResult[0]?.role;
+    const creatorResult = await this.pgConnection.query(
+      `SELECT id FROM meetings WHERE id = $1 AND created_by = $2`,
+      [meetingId, requestingDoctorId],
+    );
+
+    if (role !== 'organizer' && role !== 'co_admin' && creatorResult.length === 0) {
+      throw new ForbiddenException('Accès réservé aux organisateurs et co-administrateurs');
+    }
+
+    // Tous les participants de la réunion
+    const participantsQuery = `
+      SELECT
+        d.doctorid                               AS doctor_id,
+        d.firstname || ' ' || d.lastname         AS doctor_name,
+        d.email                                  AS doctor_email
+      FROM meeting_participants mp
+      INNER JOIN doctors d ON mp.doctor_id = d.doctorid
+      WHERE mp.meeting_id = $1
+      ORDER BY d.lastname
+    `;
+    const participants = await this.pgConnection.query(participantsQuery, [meetingId]);
+
+    // Document MongoDB (schéma embedded-doctors)
+    const mongoDoc = await this.mongoDb
+      .collection('meeting_prerequisites')
+      .findOne({ meeting_id: meetingId });
+
+    return participants.map((p: any) => {
+      const doctorData = mongoDoc?.doctors?.find((d: any) => d.doctor_id === p.doctor_id);
+      const prerequisites = (doctorData?.items ?? []).map((item: any) => ({
+        label: item.label,
+        status: item.status as 'pending' | 'in_progress' | 'done',
+      }));
+
+      return {
+        doctor_name: p.doctor_name,
+        doctor_email: p.doctor_email,
+        prerequisites,
+      };
+    });
+  }
+
+  /**
+   * PATCH /prerequisites/meeting/:id  — toggle simple d'un item {itemId, completed}
+   * Utilisé par MyPrerequisites.tsx.
+   */
+  async togglePrerequisiteItem(
+    meetingId: string,
+    doctorId: string,
+    itemId: string,
+    completed: boolean,
+  ): Promise<{ success: boolean; itemId: string; completed: boolean }> {
+    const newStatus = completed ? 'done' : 'pending';
+
+    await this.mongoDb.collection('meeting_prerequisites').updateOne(
+      {
+        meeting_id: meetingId,
+        'doctors.doctor_id': doctorId,
+      },
+      {
+        $set: {
+          'doctors.$[doctor].items.$[item].status': newStatus,
+          'doctors.$[doctor].items.$[item].updatedAt': new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      {
+        arrayFilters: [
+          { 'doctor.doctor_id': doctorId },
+          { 'item.key': itemId },
+        ],
+      },
+    );
+
+    // Émettre l'événement temps réel vers tous les participants de la room
+    if (this.videoGateway?.server) {
+      this.videoGateway.server.to(meetingId).emit('prerequisite-updated', {
+        meeting_id: meetingId,
+        doctor_id: doctorId,
+        key: itemId,
+        status: newStatus,
+      });
+    }
+
+    return { success: true, itemId, completed };
+  }
+
+  /**
+   * Met à jour les prérequis d'un médecin (format batch — utilisé par MeetingPrerequisitesCheck)
    */
   async updateMyPrerequisites(
     meetingId: string,
