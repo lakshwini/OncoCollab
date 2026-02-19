@@ -85,9 +85,6 @@ export function Sidebar({ currentPage, onNavigate, userRole }: SidebarProps) {
                       {item.badge}
                     </Badge>
                   )}
-                  {item.highlight && !isActive && (
-                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                  )}
                 </button>
               </li>
             );

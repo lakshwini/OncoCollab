@@ -7,8 +7,6 @@ import {
   Clock,
   Users,
   Plus,
-  ArrowRight,
-  Activity,
   AlertCircle,
   Loader
 } from 'lucide-react';
@@ -16,7 +14,6 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Progress } from './ui/progress';
 import { useLanguage } from '../i18n';
 import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
@@ -118,23 +115,6 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       icon: Users,
       color: 'text-purple-400',
       bg: 'bg-purple-600/20'
-    },
-  ];
-
-  const aiSuggestions = [
-    {
-      id: '1',
-      type: 'planning',
-      titleKey: 'rcpSuggested',
-      descriptionKey: 'bestSlot',
-      action: t.common.plan
-    },
-    {
-      id: '2',
-      type: 'analysis',
-      titleKey: 'aiAnalysisAvailable',
-      descriptionKey: 'imagesReadyReview',
-      action: t.common.view
     },
   ];
 
@@ -252,45 +232,6 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
-          {/* AI Suggestions */}
-          <Card className="bg-[#1a1f2e] border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <Activity className="w-5 h-5 text-blue-400" />
-                {t.dashboard.aiSuggestions}
-              </CardTitle>
-              <CardDescription className="text-gray-400">
-                {t.dashboard.aiSuggestionsDesc}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {aiSuggestions.map((suggestion) => (
-                <div
-                  key={suggestion.id}
-                  className="p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors cursor-pointer border border-blue-800/30"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-white">{getDashboardText(suggestion.titleKey)}</p>
-                      <p className="text-sm text-gray-400 mt-1">{getDashboardText(suggestion.descriptionKey)}</p>
-                    </div>
-                    <Button size="sm" className="bg-blue-600 hover:bg-blue-700 ml-4">
-                      {suggestion.action}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button
-                variant="link"
-                className="w-full text-blue-400 hover:text-blue-300"
-                onClick={() => onNavigate('agentia')}
-              >
-                {t.dashboard.viewAllSuggestions}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* Recent Dossiers - DYNAMIC */}
           <Card className="bg-[#1a1f2e] border-gray-800">
             <CardHeader>
