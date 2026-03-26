@@ -1,8 +1,14 @@
 node_modules
+
+# Config sensibles
+olga-designer/config/config.json
 olga-designer/config/apiKey.json
-localhost+2.pem
-localhost+2-key.pem
-olga-designer/config/apiKey.json
+
+# Env
 .env
 .env.*
+
+# Certificats
 *.pem
+localhost+2.pem
+localhost+2-key.pem
