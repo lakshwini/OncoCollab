@@ -2,3 +2,6 @@ node_modules
 olga-designer/config/apiKey.json
 localhost+2.pem
 localhost+2-key.pemolga-designer/config/apiKey.json
+.env
+.env.*
+*.pem
