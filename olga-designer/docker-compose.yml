@@ -1,0 +1,97 @@
+services:
+  mysql:
+    image: mysql:8.0
+    platform: linux/amd64
+    container_name: mysql
+    env_file:
+      - .env.mysql
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: always
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "myuser", "-pmypassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - olga
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    platform: linux/amd64
+    container_name: phpmyadmin
+    ports:
+      - "81:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: myuser
+      PMA_PASSWORD: mypassword
+    depends_on:
+      - mysql
+    restart: always
+    links:
+      - mysql
+    networks:
+      - olga
+
+  api:
+    image: kirito140/olga-backend:latest
+    platform: linux/amd64
+    container_name: api
+    ports:
+      - "9091:9091"
+    env_file:
+      - .env.back
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - ./config/apiKey.json:/app/config/apiKey.json:ro
+    networks:
+      - olga
+
+  designer:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.designer
+    container_name: designer
+    ports:
+      - "8082:80"
+    env_file:
+      - .env.front
+    volumes:
+      - ./config/config.json:/usr/share/nginx/html/config/config.json:ro
+    depends_on:
+      - api
+    networks:
+      - olga
+
+  admin:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    container_name: admin
+    ports:
+      - "8083:80"
+    env_file:
+      - .env.front
+    volumes:
+      - ./config/config.json:/usr/share/nginx/html/config/config.json:ro
+    depends_on:
+      - api
+    networks:
+      - olga
+
+networks:
+  olga:
+    driver: bridge
+
+volumes:
+  mysql_data:

@@ -1,0 +1,24 @@
+import { IsString, IsEnum, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class UpdatePrerequisiteItemDto {
+  @IsString()
+  key: string;
+
+  @IsEnum(['pending', 'in_progress', 'done'])
+  status: 'pending' | 'in_progress' | 'done';
+
+  @IsOptional()
+  @IsString()
+  reference_id?: string | null;
+
+  @IsOptional()
+  value?: unknown;
+}
+
+export class UpdatePrerequisitesDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdatePrerequisiteItemDto)
+  items: UpdatePrerequisiteItemDto[];
+}
