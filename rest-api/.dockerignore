@@ -1,0 +1,12 @@
+# ============================================================
+# .dockerignore — Backend (rest-api)
+# ============================================================
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+.DS_Store
+coverage
+test

@@ -1,0 +1,16 @@
+# ============================================================
+# .dockerignore — Frontend (racine)
+# ============================================================
+node_modules
+build
+dist
+.git
+.env
+.env.backend
+.env.postgres
+.env.mongo
+# .env.frontend est INCLUS volontairement (nécessaire pour le build Vite)
+*.log
+.DS_Store
+*.pem
+*.key
