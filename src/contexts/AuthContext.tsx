@@ -34,31 +34,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    // Récupérer la session Supabase initiale
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setSupabaseUser(session?.user ?? null);
-    });
+    // Récupérer la session Supabase initiale (optionnel)
+    if (supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setSession(session);
+        setSupabaseUser(session?.user ?? null);
+      });
 
-    // Écouter les changements d'auth Supabase (TOKEN_REFRESHED, SIGNED_IN, SIGNED_OUT)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      setSupabaseUser(session?.user ?? null);
+      // Écouter les changements d'auth Supabase (TOKEN_REFRESHED, SIGNED_IN, SIGNED_OUT)
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event, session) => {
+        setSession(session);
+        setSupabaseUser(session?.user ?? null);
 
-      if (event === 'TOKEN_REFRESHED' && session?.access_token) {
-        // Supabase a auto-refresh le token → mettre à jour localStorage
-        const source = authService.getAuthSource();
-        if (source === 'supabase') {
-          localStorage.setItem('onco_collab_token', session.access_token);
+        if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+          const source = authService.getAuthSource();
+          if (source === 'supabase') {
+            localStorage.setItem('onco_collab_token', session.access_token);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setAppUser(null);
         }
-      } else if (event === 'SIGNED_OUT') {
-        setAppUser(null);
-      }
-    });
+      });
 
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    }
   }, []);
 
   const signIn = async (email: string, password: string) => {

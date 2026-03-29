@@ -1,21 +1,273 @@
+# ============================================================
+# docker-compose.yml — OncoCollab (stack complète)
+# ============================================================
+# Démarrage : docker-compose up --build
+# Arrêt     : docker-compose down
+# Reset BDD  : docker-compose down -v
+# ============================================================
+
 services:
+
+  # ──────────────────────────────────────────
+  # FRONTEND — React / Vite → nginx
+  # http://localhost:80
+  # ──────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oncocollab_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    env_file:
+      - .env.frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - oncocollab
+    labels:
+      - "com.oncocollab.service=frontend"
+
+  # ──────────────────────────────────────────
+  # BACKEND — NestJS
+  # http://localhost:3002
+  # ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./rest-api
+      dockerfile: Dockerfile
+    container_name: oncocollab_backend
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    env_file:
+      - .env.backend
+    environment:
+      # Overrides pour pointer sur les containers Docker (pas localhost)
+      POSTGRES_HOST: postgres
+      MONGODB_URI: mongodb://mongo:27017/oncocollab_prerequisites
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    networks:
+      - oncocollab
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    labels:
+      - "com.oncocollab.service=backend"
+
+  # ──────────────────────────────────────────
+  # BASE DE DONNÉES — PostgreSQL
+  # ──────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: oncocollab_postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"  # 5433 côté hôte → évite le conflit avec le PostgreSQL local
+    env_file:
+      - .env.postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - oncocollab
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oncocollab} -d ${POSTGRES_DB:-oncocollab}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      - "com.oncocollab.service=postgres"
+
+  # ──────────────────────────────────────────
+  # BASE DE DONNÉES — MongoDB
+  # ──────────────────────────────────────────
+  mongo:
+    image: mongo:7-jammy
+    container_name: oncocollab_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    env_file:
+      - .env.mongo
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - oncocollab
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      - "com.oncocollab.service=mongo"
+
+  # ──────────────────────────────────────────
+  # OLGA DESIGNER — Interface designer
+  # http://localhost:8082
+  # ──────────────────────────────────────────
+  olga-designer:
+    platform: linux/amd64
+    build:
+      context: ./olga-designer
+      dockerfile: Dockerfile.designer
+    container_name: oncocollab_olga_designer
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    env_file:
+      - ./olga-designer/.env.front
+    volumes:
+      - ./olga-designer/config/config.json:/usr/share/nginx/html/config/config.json:ro
+    depends_on:
+      olga-api:
+        condition: service_healthy
+    networks:
+      - oncocollab
+      - olga
+    labels:
+      - "com.oncocollab.service=olga-designer"
+
+  # ──────────────────────────────────────────
+  # OLGA ADMIN — Interface admin
+  # http://localhost:8083
+  # ──────────────────────────────────────────
+  olga-admin:
+    platform: linux/amd64
+    build:
+      context: ./olga-designer
+      dockerfile: Dockerfile.admin
+    container_name: oncocollab_olga_admin
+    restart: unless-stopped
+    ports:
+      - "8083:80"
+    env_file:
+      - ./olga-designer/.env.front
+    volumes:
+      - ./olga-designer/config/config.json:/usr/share/nginx/html/config/config.json:ro
+    depends_on:
+      olga-api:
+        condition: service_healthy
+    networks:
+      - oncocollab
+      - olga
+    labels:
+      - "com.oncocollab.service=olga-admin"
+
+  # ──────────────────────────────────────────
+  # OLGA API — Backend Olga
+  # http://localhost:9091
+  # ──────────────────────────────────────────
+  olga-api:
+    image: kirito140/olga-backend:latest
+    platform: linux/amd64
+    container_name: oncocollab_olga_api
+    restart: on-failure
+    ports:
+      - "9091:9091"
+    env_file:
+      - ./olga-designer/.env.back
+    depends_on:
+      olga-mysql:
+        condition: service_healthy
+    volumes:
+      - ./olga-designer/config/apiKey.json:/app/config/apiKey.json:ro
+    networks:
+      - olga
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9091/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.oncocollab.service=olga-api"
+
+  # ──────────────────────────────────────────
+  # OLGA MySQL — Base de données Olga
+  # ──────────────────────────────────────────
+  olga-mysql:
+    image: mysql:8.0
+    platform: linux/amd64
+    container_name: oncocollab_olga_mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    env_file:
+      - ./olga-designer/.env.mysql
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - olga
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      - "com.oncocollab.service=olga-mysql"
+
+  # ──────────────────────────────────────────
+  # TURN SERVER — Coturn (WebRTC)
+  # udp/tcp 3478 + udp 50000-50020
+  # ──────────────────────────────────────────
   coturn:
     image: coturn/coturn
-    container_name: coturn
+    container_name: oncocollab_coturn
     restart: unless-stopped
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
       - "50000-50020:50000-50020/udp"
+    env_file:
+      - .env
     environment:
-      - EXTERNAL_IP=${EXTERNAL_IP}
+      - EXTERNAL_IP=${EXTERNAL_IP:-127.0.0.1}
     command:
-      - -n                        
-      - --log-file=stdout         
-      - --min-port=50000          
-      - --max-port=50020          
-      - --listening-ip=0.0.0.0    
-      - --external-ip=${EXTERNAL_IP}
-      - --realm=mon-local        
-      - --user=admin:password     
-      - --lt-cred-mech            
+      - -n
+      - --log-file=stdout
+      - --min-port=50000
+      - --max-port=50020
+      - --listening-ip=0.0.0.0
+      - --external-ip=${EXTERNAL_IP:-127.0.0.1}
+      - --realm=oncocollab
+      - --user=${TURN_USERNAME}:${TURN_PASSWORD}
+      - --lt-cred-mech
+    networks:
+      - oncocollab
+    labels:
+      - "com.oncocollab.service=coturn"
+
+# ============================================================
+# VOLUMES persistants
+# ============================================================
+volumes:
+  postgres_data:
+    driver: local
+  mongo_data:
+    driver: local
+  mysql_data:
+    driver: local
+
+# ============================================================
+# NETWORKS
+# ============================================================
+networks:
+  oncocollab:
+    driver: bridge
+    name: oncocollab_network
+  olga:
+    driver: bridge
+    name: olga_network

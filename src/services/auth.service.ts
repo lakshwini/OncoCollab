@@ -163,6 +163,7 @@ class AuthService {
     const source = this.getAuthSource();
 
     if (source === 'supabase') {
+      if (!supabase) return localStorage.getItem(STORAGE_KEYS.TOKEN);
       // Pour Supabase: toujours récupérer la session fraîche
       const { data } = await supabase.auth.getSession();
       if (data.session?.access_token) {
@@ -228,6 +229,7 @@ class AuthService {
    * 4. On sauvegarde la session locale
    */
   async loginWithSupabase(credentials: LoginCredentials): Promise<{ user: User; token: string }> {
+    if (!supabase) throw new Error('Supabase non configuré');
     try {
       console.log('🔐 Login Supabase pour:', credentials.email);
 
@@ -292,6 +294,7 @@ class AuthService {
    * Inscription avec Supabase Auth
    */
   async signUpWithSupabase(credentials: LoginCredentials): Promise<{ user: User; token: string }> {
+    if (!supabase) throw new Error('Supabase non configuré');
     try {
       const { data, error } = await supabase.auth.signUp({
         email: credentials.email,
@@ -318,6 +321,7 @@ class AuthService {
    * Envoyer un OTP Supabase par email
    */
   async sendOTPWithSupabase(email: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase non configuré');
     try {
       const { error } = await supabase.auth.signInWithOtp({ email });
 
@@ -336,6 +340,7 @@ class AuthService {
    * Vérifier un OTP Supabase
    */
   async verifyOTPWithSupabase(email: string, token: string): Promise<{ user: User; token: string }> {
+    if (!supabase) throw new Error('Supabase non configuré');
     try {
       const { data, error } = await supabase.auth.verifyOtp({
         email,
@@ -390,6 +395,7 @@ class AuthService {
    * Récupérer la session Supabase active
    */
   async getSupabaseSession() {
+    if (!supabase) return null;
     const { data } = await supabase.auth.getSession();
     return data.session;
   }
@@ -410,6 +416,10 @@ class AuthService {
     if (!existingSession) return null;
 
     if (source === 'supabase') {
+      if (!supabase) {
+        this.logout();
+        return null;
+      }
       // Vérifier que Supabase a toujours une session active
       const { data } = await supabase.auth.getSession();
 
@@ -438,7 +448,7 @@ class AuthService {
    * Déconnexion Supabase
    */
   async logoutSupabase(): Promise<void> {
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
     this.logout(); // Nettoyer localStorage
   }
 }

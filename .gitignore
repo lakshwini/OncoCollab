@@ -4,11 +4,23 @@ node_modules
 olga-designer/config/config.json
 olga-designer/config/apiKey.json
 
-# Env
+# Env — jamais committer des secrets
 .env
 .env.*
+**/.env
+**/.env.*
+# Exception : les fichiers exemple doivent être committés
+!*.example
+!**/*.example
 
 # Certificats
 *.pem
-localhost+2.pem
-localhost+2-key.pem
+*.key
+
+# Build artifacts
+build/
+dist/
+
+# OS / IDE
+.DS_Store
+**/.DS_Store

@@ -12,7 +12,7 @@ services:
       - mysql_data:/var/lib/mysql
     restart: always
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "myuser", "-pmypassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -26,10 +26,12 @@ services:
     container_name: phpmyadmin
     ports:
       - "81:80"
+    env_file:
+      - .env.mysql
     environment:
       PMA_HOST: mysql
-      PMA_USER: myuser
-      PMA_PASSWORD: mypassword
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
     depends_on:
       - mysql
     restart: always

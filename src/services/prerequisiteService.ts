@@ -38,6 +38,11 @@ async function getPrerequisiteResponse(
 
   const normalizedRole = normalizeRole(role);
 
+  if (!supabase) {
+    console.warn('Supabase désactivé — getPrerequisiteResponse retourne null');
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('prerequisite_responses')
     .select('answers')
@@ -62,6 +67,11 @@ async function savePrerequisiteResponse(
   ensureRequired(normalizedMeetingId, 'meeting_id');
   ensureRequired(normalizedPrerequisiteId, 'prerequisite_id');
   ensureRequired(input.role, 'role');
+
+  if (!supabase) {
+    console.warn('Supabase désactivé — savePrerequisiteResponse ignoré');
+    return input.answers;
+  }
 
   const payload = {
     meeting_id: normalizedMeetingId,
@@ -98,6 +108,12 @@ function subscribeToPrerequisiteResponseUpdates(
   ensureRequired(role, 'role');
 
   const normalizedRole = normalizeRole(role);
+
+  if (!supabase) {
+    console.warn('Supabase désactivé — subscribeToPrerequisiteResponseUpdates inactif');
+    return () => {};
+  }
+
   const channel = supabase
     .channel(`prerequisite-responses-${normalizedMeetingId}-${normalizedPrerequisiteId}-${normalizedRole}`)
     .on(
@@ -134,7 +150,7 @@ function subscribeToPrerequisiteResponseUpdates(
     .subscribe();
 
   return () => {
-    void supabase.removeChannel(channel);
+    void supabase!.removeChannel(channel);
   };
 }
 
