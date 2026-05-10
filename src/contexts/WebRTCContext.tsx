@@ -44,6 +44,18 @@ interface PrerequisiteUpdatePayload {
   status: 'pending' | 'in_progress' | 'done';
 }
 
+interface ReportReadyPayload {
+  reportId: string;
+  meetingId: string;
+  title: string;
+  summary: string;
+  pdfUrl: string;
+  participantIds: string[];
+  generatedBy: string;
+  generatedAt: string;
+  _ts?: number;
+}
+
 interface WebRTCContextType {
   // Connexion
   isConnected: boolean;
@@ -71,6 +83,9 @@ interface WebRTCContextType {
   // Prérequis temps réel
   lastPrerequisiteUpdate: PrerequisiteUpdatePayload | null;
 
+  // Rapport généré temps réel
+  lastReportReady: ReportReadyPayload | null;
+
   // ✅ WebRTC Monitoring & TURN debugging
   getConnectionStats: () => Promise<any>;
   startMonitoring: (intervalMs?: number) => () => void;
@@ -95,6 +110,7 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const [audioLevels, setAudioLevels] = useState<Map<string, number>>(new Map());
   const [lastPrerequisiteUpdate, setLastPrerequisiteUpdate] = useState<PrerequisiteUpdatePayload | null>(null);
+  const [lastReportReady, setLastReportReady] = useState<ReportReadyPayload | null>(null);
 
   const {
     stream,
@@ -849,6 +865,12 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
         console.log('[WebRTC] 📋 Prérequis mis à jour:', data);
         setLastPrerequisiteUpdate({ ...data, _ts: Date.now() } as any);
       });
+
+      // Rapport RCP généré — notifie tous les participants de la salle
+      socket.on('report:ready', (data) => {
+        console.log('[WebRTC] 📄 Rapport disponible:', data.reportId, '—', data.title);
+        setLastReportReady({ ...data, _ts: Date.now() });
+      });
     }
   }, [createPeerConnection, closePeerConnection, setInMeeting]);
 
@@ -1194,6 +1216,7 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
     fullLeaveRoom,
     currentRoomId,
     lastPrerequisiteUpdate,
+    lastReportReady,
     getConnectionStats,
     startMonitoring,
   };

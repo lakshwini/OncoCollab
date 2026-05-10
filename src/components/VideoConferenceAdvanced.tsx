@@ -3,6 +3,7 @@ import { User } from '../App';
 import { useLanguage } from '../i18n';
 import { useWebRTC } from '../contexts/WebRTCContext';
 import { useVideo } from '../contexts/VideoContext';
+import { API_CONFIG, createApiUrl, createAuthHeaders } from '../config/api.config';
 import {
   X,
   Mic,
@@ -44,6 +45,7 @@ import {
 } from 'lucide-react';
 import { PrerequisitesTab } from './PrerequisitesTab';
 import { PrerequisiteModulePlaceholder } from './PrerequisiteModulePlaceholder';
+import { ReportRecorder } from './ReportRecorder';
 import {
   fetchMeetingPrerequisiteDetails,
   type PrerequisiteDetailsResponse,
@@ -155,6 +157,7 @@ export function VideoConferenceAdvanced({
     participants,
     mySocketId,
     lastPrerequisiteUpdate,
+    lastReportReady,
   } = useWebRTC();
   const {
     stream: localStream,
@@ -197,6 +200,12 @@ export function VideoConferenceAdvanced({
   const [annotationTool, setAnnotationTool] = useState<'cursor' | 'pen' | 'text' | 'rectangle' | 'circle'>('cursor');
   const [searchDoc, setSearchDoc] = useState('');
 
+  // ── Report Generation + Documents ─────────────────────────
+  const [showReportRecorder, setShowReportRecorder] = useState(false);
+  const [meetingReports, setMeetingReports] = useState<Array<{
+    id: string; name: string; type: string; date: string; owner: string; pdfUrl: string;
+  }>>([]);
+
   const localVideoGridRef = useRef<HTMLVideoElement>(null);
   const localVideoMiniRef = useRef<HTMLVideoElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -230,13 +239,60 @@ export function VideoConferenceAdvanced({
   // Chat
   const [chatMessages, setChatMessages] = useState<{ id: string; user: string; time: string; message: string }[]>([]);
 
-  // Mock data
-  const documents = [
-    { id: '1', name: 'Compte-rendu anatomopathologique', type: 'pdf', date: '12/01/2026', owner: 'Dr. Moreau', size: '2.4 MB' },
-    { id: '2', name: 'Bilan sanguin complet', type: 'pdf', date: '10/01/2026', owner: 'Laboratoire', size: '1.1 MB' },
-    { id: '3', name: 'Ordonnance chimiothérapie', type: 'pdf', date: '08/01/2026', owner: 'Dr. Bernard', size: '0.5 MB' },
-    { id: '4', name: 'Notes de consultation', type: 'doc', date: '05/01/2026', owner: currentDoctorName, size: '0.3 MB' },
-  ];
+  // Chargement des rapports réels de la réunion
+  const fetchMeetingReports = useCallback(async () => {
+    if (!roomId || !authToken) return;
+    try {
+      const res = await fetch(
+        createApiUrl(`/meetings/${roomId}/reports`),
+        { headers: createAuthHeaders(authToken) },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const reports = Array.isArray(data) ? data : [];
+      setMeetingReports(reports.map((r: any) => ({
+        id: r.id,
+        name: r.title || 'Compte-rendu RCP',
+        type: 'pdf',
+        date: r.generated_at ? new Date(r.generated_at).toLocaleDateString('fr-FR') : '',
+        owner: 'Généré par IA',
+        pdfUrl: r.pdf_url || '',
+      })));
+    } catch (err) {
+      console.error('[VideoConf] Erreur chargement rapports:', err);
+    }
+  }, [roomId, authToken]);
+
+  // Charger les rapports à l'ouverture de l'onglet Documents
+  useEffect(() => {
+    if (leftPanelTab === 'documents') {
+      fetchMeetingReports();
+    }
+  }, [leftPanelTab, fetchMeetingReports]);
+
+  // Rafraîchir quand un rapport est généré en temps réel (Socket.IO)
+  useEffect(() => {
+    if (!lastReportReady) return;
+    console.log('[VideoConf] 📄 Nouveau rapport reçu via Socket.IO:', lastReportReady.reportId);
+    // Ajouter directement le rapport reçu sans re-fetcher
+    setMeetingReports(prev => {
+      const exists = prev.some(r => r.id === lastReportReady.reportId);
+      if (exists) return prev;
+      return [{
+        id: lastReportReady.reportId,
+        name: lastReportReady.title || 'Compte-rendu RCP',
+        type: 'pdf',
+        date: new Date().toLocaleDateString('fr-FR'),
+        owner: 'Généré par IA',
+        pdfUrl: lastReportReady.pdfUrl || '',
+      }, ...prev];
+    });
+    // Switcher vers l'onglet Documents pour que le rapport soit visible
+    if (leftPanelOpen) setLeftPanelTab('documents');
+  }, [lastReportReady]);
+
+  // documents = liste fusionnée (rapports réels)
+  const documents = meetingReports;
 
   const imageries = [
     { id: '1', name: 'IRM Cerebrale', type: 'IRM', date: '12/01/2026', slices: 24, status: 'Complet' },
@@ -364,6 +420,9 @@ export function VideoConferenceAdvanced({
       .catch(err => console.error('[VideoConf] ❌ Erreur refresh prérequis:', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPrerequisiteUpdate]);
+
+  // Note : les notifications report:ready arrivent via lastReportReady (WebRTCContext)
+  // L'effet de refresh documents est géré dans le bloc useEffect ci-dessus.
 
   const handleSelectPrereqItem = useCallback(
     (item: PrerequisiteItemDetail, doctor: ParticipantDetail) => {
@@ -517,6 +576,11 @@ export function VideoConferenceAdvanced({
       setRightPanelTab('participants');
     }
   }, [rightPanelOpen, rightPanelTab]);
+
+  // ── Report Generation Handler ──────────────────────────
+  const handleOpenReportRecorder = useCallback(() => {
+    setShowReportRecorder(true);
+  }, []);
 
   const totalParticipants = Math.max(1, participants.size || 1);
 
@@ -783,7 +847,21 @@ export function VideoConferenceAdvanced({
                           </p>
                           <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '4px 0 0' }}>{doc.owner} • {doc.date}</p>
                         </div>
-                        <button style={{ border: 'none', backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer' }}>
+                        <button
+                          onClick={() => {
+                            if (!doc.pdfUrl) return;
+                            const url = doc.pdfUrl.startsWith('/')
+                              ? `${API_CONFIG.BASE_URL}${doc.pdfUrl}`
+                              : doc.pdfUrl;
+                            window.open(url, '_blank');
+                          }}
+                          title="Ouvrir le PDF"
+                          style={{
+                            border: 'none', backgroundColor: 'transparent',
+                            color: doc.pdfUrl ? C.blue : C.textGray,
+                            cursor: doc.pdfUrl ? 'pointer' : 'default',
+                          }}
+                        >
                           <Download size={16} />
                         </button>
                       </div>
@@ -1508,6 +1586,14 @@ export function VideoConferenceAdvanced({
             <Share2 size={20} />
           </ControlButton>
 
+          {/* Generate Report - Mic Recording */}
+          <ControlButton
+            onClick={handleOpenReportRecorder}
+            label="Générer rapport"
+          >
+            <FileText size={20} />
+          </ControlButton>
+
           <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 4px' }} />
 
           {/* Chat */}
@@ -1550,6 +1636,31 @@ export function VideoConferenceAdvanced({
           </button>
         </div>
       </div>
+
+      {/* Report Recorder Modal */}
+      {showReportRecorder && (
+        <ReportRecorder
+          meetingId={roomId || ''}
+          meetingTitle={meetingTitle}
+          currentDoctorName={currentDoctorName}
+          onClose={() => setShowReportRecorder(false)}
+          onSuccess={(data) => {
+            setShowReportRecorder(false);
+            // Ajouter le nouveau rapport directement dans la liste
+            setMeetingReports(prev => [{
+              id: data.reportId,
+              name: data.title || 'Compte-rendu RCP',
+              type: 'pdf',
+              date: new Date().toLocaleDateString('fr-FR'),
+              owner: 'Généré par IA',
+              pdfUrl: data.pdfUrl || '',
+            }, ...prev]);
+            // Basculer vers l'onglet Documents
+            setLeftPanelOpen(true);
+            setLeftPanelTab('documents');
+          }}
+        />
+      )}
     </div>
   );
 }

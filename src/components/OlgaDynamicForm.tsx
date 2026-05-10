@@ -45,11 +45,11 @@ const containerStyles = {
     description: 'text-gray-500',
   },
   dark: {
-    wrapper: 'rounded-xl border border-[#333333] bg-[#2a2a2a]',
-    header: 'border-b border-[#333333] bg-[#232323]',
-    input: 'border-[#444444] bg-[#1f1f1f] text-white placeholder:text-gray-500',
-    label: 'text-gray-200',
-    description: 'text-gray-400',
+    wrapper: 'rounded-xl border border-[#444444] bg-[#2a2a2a]',
+    header: 'border-b border-[#444444] bg-[#1f1f1f]',
+    input: 'border-[#555555] bg-[#1a1a1a] text-white placeholder:text-gray-400',
+    label: 'text-white',
+    description: 'text-gray-300',
   },
 } as const;
 
@@ -346,7 +346,7 @@ export function OlgaDynamicForm({
         )}
 
         {loadingSchema || loadingAnswers ? (
-          <div className="flex items-center justify-center py-8 text-sm text-gray-500">
+          <div className={`flex items-center justify-center py-8 text-sm ${variant === 'dark' ? 'text-gray-300' : 'text-gray-500'}`}>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             {language === 'fr' ? 'Chargement des réponses…' : 'Loading answers...'}
           </div>

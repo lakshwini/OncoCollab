@@ -97,10 +97,15 @@ export const createApiUrl = (endpoint: string): string => {
 };
 
 // Helper pour les headers avec authentification
-export const createAuthHeaders = (token: string | null): HeadersInit => {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
+export const createAuthHeaders = (
+  token: string | null,
+  includeContentType = true,
+): HeadersInit => {
+  const headers: HeadersInit = {};
+
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;

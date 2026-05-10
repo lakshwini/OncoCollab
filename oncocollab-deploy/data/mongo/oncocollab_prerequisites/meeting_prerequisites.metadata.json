@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"92761797571147b28bb2aa723b3748d3","collectionName":"meeting_prerequisites","type":"collection"}

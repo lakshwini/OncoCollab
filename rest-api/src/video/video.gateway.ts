@@ -483,4 +483,21 @@ export class VideoGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: error.message || 'Erreur lors de l\'envoi du message' });
     }
   }
+
+  /**
+   * Broadcast report generation to all participants in a meeting
+   */
+  broadcastReportReady(meetingId: string, reportData: {
+    reportId: string;
+    meetingId: string;
+    title?: string;
+    summary?: string;
+    pdfUrl?: string;
+    participantIds?: string[];
+    generatedBy?: string;
+    generatedAt?: string;
+  }) {
+    this.logger.log(`[REPORT] Broadcasting report ready for meeting ${meetingId}`);
+    this.server.to(meetingId).emit('report:ready', reportData);
+  }
 }

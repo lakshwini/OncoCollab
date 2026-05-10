@@ -31,7 +31,7 @@ import {
   TableRow,
 } from './ui/table';
 import { useLanguage } from '../i18n';
-import { createApiUrl, createAuthHeaders } from '../config/api.config';
+import { API_CONFIG, createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface Document {
   id: string;
@@ -42,6 +42,7 @@ interface Document {
   status: string;
   owner: string;
   shared: boolean;
+  pdf_url?: string;  // Pour les rapports générés
 }
 
 interface WorkspaceDocumentsProps {
@@ -74,19 +75,40 @@ export function WorkspaceDocuments({
         }
 
         const headers = createAuthHeaders(token);
+
+        // Fetch regular documents
         const documentsUrl = createApiUrl('/documents');
         console.log('[WorkspaceDocuments] requesting documents URL:', documentsUrl);
-        const res = await fetch(documentsUrl, { headers });
-        console.log('[WorkspaceDocuments] /documents response status:', res.status);
+        const docsRes = await fetch(documentsUrl, { headers }).catch(() => null);
+        const docs = docsRes?.ok ? await docsRes.json() : [];
 
-        if (res.ok) {
-          const data = await res.json();
-          setDocuments(Array.isArray(data) ? data : []);
-        } else if (res.status === 404) {
-          setDocuments([]);
-        } else {
-          throw new Error('Erreur lors du chargement des documents');
-        }
+        // Fetch generated reports
+        const reportsUrl = createApiUrl('/doctors/reports/list');
+        console.log('[WorkspaceDocuments] requesting reports URL:', reportsUrl);
+        const reportsRes = await fetch(reportsUrl, { headers }).catch(() => null);
+        const reports = reportsRes?.ok ? await reportsRes.json() : [];
+
+        // Transform reports to Document format
+        const transformedReports: Document[] = reports.map((r: any) => ({
+          id: r.id,
+          name: r.title || 'Rapport',
+          patient: r.meeting_title || 'RCP',
+          type: 'report',
+          lastModified: r.generated_at ? new Date(r.generated_at).toLocaleDateString('fr-FR') : '',
+          status: 'validated',
+          owner: 'Rapports générés',
+          shared: true,
+          pdf_url: r.pdf_url,
+        }));
+
+        // Combine documents and reports
+        const allDocuments = [
+          ...(Array.isArray(docs) ? docs : []),
+          ...transformedReports,
+        ];
+
+        console.log('[WorkspaceDocuments] Combined docs:', allDocuments.length, '(docs:', docs.length, '+ reports:', transformedReports.length, ')');
+        setDocuments(allDocuments);
       } catch (err) {
         console.error('Error loading documents:', err);
         setError('Erreur lors du chargement des documents');
@@ -308,6 +330,17 @@ export function WorkspaceDocuments({
                               variant="ghost"
                               size="sm"
                               className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                              onClick={() => {
+                                if (doc.type === 'report' && doc.pdf_url) {
+                                  // Les URL relatives /reports/file/... doivent pointer vers le backend (port 3002)
+                                  const fullUrl = doc.pdf_url.startsWith('/')
+                                    ? `${API_CONFIG.BASE_URL}${doc.pdf_url}`
+                                    : doc.pdf_url;
+                                  window.open(fullUrl, '_blank');
+                                } else {
+                                  console.log('[WorkspaceDocuments] Détails:', doc);
+                                }
+                              }}
                             >
                               {t.common.details}
                             </Button>

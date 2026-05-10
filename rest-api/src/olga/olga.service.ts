@@ -35,7 +35,8 @@ const roleToFormId: Record<string, string> = {
 @Injectable()
 export class OlgaService {
   private readonly baseUrl: string;
-  private readonly formsBaseUrl = 'http://localhost:9091';
+  // formsBaseUrl est résolu dynamiquement via baseUrl (configurable via OLGA_BASE_URL)
+  private get formsBaseUrl(): string { return this.baseUrl; }
 
   private readonly roleToLegacyFormId: Record<string, string> = {
     oncologue: 'oncologistForm',
@@ -98,7 +99,7 @@ export class OlgaService {
       throw new BadRequestException('Le roleId est requis');
     }
 
-    const getUrl = `${this.formsBaseUrl}/forms/getFromId/${encodeURIComponent(sanitizedRoleId)}`;
+    const getUrl = `${this.formsBaseUrl}/forms/getFromID/${encodeURIComponent(sanitizedRoleId)}`;
 
     try {
       const getResponse = await fetch(getUrl, {
@@ -185,7 +186,7 @@ export class OlgaService {
       );
     }
 
-    const requestUrl = `${this.baseUrl}/forms/getFromId/${encodeURIComponent(formId)}`;
+    const requestUrl = `${this.baseUrl}/forms/getFromID/${encodeURIComponent(formId)}`;
 
     try {
       const response = await fetch(requestUrl, {

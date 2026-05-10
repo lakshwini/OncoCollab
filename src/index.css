@@ -4229,6 +4229,47 @@ html {
   }
 }
 
+/* === OLGA Form Styling - Clean Medical Theme === */
+.olga-form {
+  background: white !important;
+  color: #111827 !important;
+}
+
+.olga-form input,
+.olga-form textarea,
+.olga-form select {
+  background: white !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.olga-form input:focus,
+.olga-form textarea:focus,
+.olga-form select:focus {
+  outline: none !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.olga-form input::placeholder,
+.olga-form textarea::placeholder {
+  color: #9ca3af !important;
+}
+
+.olga-form label {
+  color: #374151 !important;
+  font-weight: 500 !important;
+}
+
+.olga-form .rounded-xl {
+  background: white !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* === End OLGA Form Styling === */
 @keyframes enter {
   from {
     opacity: var(--tw-enter-opacity, 1);

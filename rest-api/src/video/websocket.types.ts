@@ -68,6 +68,18 @@ export interface ServerToClientEvents {
     key: string;
     status: 'pending' | 'in_progress' | 'done';
   }) => void;
+
+  // Notification de rapport généré
+  "report:ready": (data: {
+    reportId: string;
+    meetingId: string;
+    title?: string;
+    summary?: string;
+    pdfUrl?: string;
+    participantIds?: string[];
+    generatedBy?: string;
+    generatedAt?: string;
+  }) => void;
 }
 
 // Événements que le Client envoie au Serveur

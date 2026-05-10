@@ -24,9 +24,31 @@ dist/
 # OS / IDE
 .DS_Store
 **/.DS_Store
+.vscode/
 
 # Claude Code (mémoire locale, ne pas partager)
 .claude/
 
-# Fichiers temporaires inconnus
-zihCUaSw
+# Documents Office (ne pas committer)
+*.docx
+*.doc
+*.xlsx
+
+# Scripts utilitaires locaux (non nécessaires au déploiement)
+PORT_CLEANUP.sh
+PORT_STRATEGY.md
+MONGODB_FIX_REPORT.md
+MONGODB_PORT_CONFIG.md
+INTEGRATION_RAPPORT_VISIO.md
+FICHIERS_MODIFIES.md
+mongodb-port-checker.sh
+
+# Docker production / CI (géré séparément)
+docker-compose.prod.yml
+build-and-push.sh
+
+# Dossier d'intégration expérimentale (brouillon)
+RapportGenarate/
+
+# Script de démarrage local (optionnel, non critique)
+start-dev.sh

@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Meeting } from './entities/meeting.entity';
 import { MongoClient, Db } from 'mongodb';
 import { ConfigService } from '@nestjs/config';
+import { getPrerequisiteTemplatesForSpeciality } from '../prerequisites/prerequisite-templates';
 
 export interface MeetingWithParticipants {
   id: string;
@@ -79,10 +80,51 @@ export class MeetingsService {
    * Initialise la connexion MongoDB
    */
   private async initMongo() {
-    const mongoUri = this.configService.get<string>('MONGODB_URI') || 'mongodb://localhost:27017';
-    const client = await MongoClient.connect(mongoUri);
-    this.mongoDb = client.db('oncocollab_prerequisites');
-    console.log('✅ MongoDB connecté dans MeetingsService');
+    const mongoUri = this.configService.get<string>('MONGODB_URI');
+    if (!mongoUri) {
+      this.logger.error('[MeetingsService] MONGODB_URI non défini dans .env — prérequis non disponibles');
+      return;
+    }
+    try {
+      const client = await MongoClient.connect(mongoUri);
+      this.mongoDb = client.db('oncocollab_prerequisites');
+      this.logger.log('✅ MongoDB connecté dans MeetingsService');
+    } catch (err) {
+      this.logger.error('[MeetingsService] Erreur connexion MongoDB:', err);
+    }
+  }
+
+  /**
+   * Auto-génère et sauvegarde les prérequis d'une réunion depuis les templates par spécialité.
+   * Appelé quand aucun document MongoDB n'existe pour cette réunion.
+   */
+  private async initializePrerequisitesForMeeting(meetingId: string, participants: any[]): Promise<any> {
+    const doctors = participants.map((p: any) => ({
+      doctor_id: p.doctorId,
+      speciality: p.speciality,
+      items: getPrerequisiteTemplatesForSpeciality(p.speciality).map((t) => ({
+        key: t.key,
+        label: t.label || t.label_fr || t.key,
+        label_fr: t.label_fr || t.label || t.key,
+        label_en: t.label_en || t.label || t.key,
+        status: 'pending',
+        source: t.source || 'document',
+        reference_id: null,
+        value: null,
+      })),
+    }));
+
+    const doc = {
+      meeting_id: meetingId,
+      status: 'in_progress',
+      doctors,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await this.mongoDb.collection('meeting_prerequisites').insertOne(doc);
+    this.logger.log(`[MeetingsService] Prérequis auto-générés pour meeting ${meetingId}`);
+    return doc;
   }
 
   private async getDoctorSpecialities(doctorIds: string[]): Promise<Map<string, string>> {
@@ -211,20 +253,21 @@ export class MeetingsService {
         };
       });
 
-      await this.mongoDb.collection('meeting_prerequisites').updateOne(
-        { meeting_id: newMeetingId },
-        {
-          $set: {
-            meeting_id: newMeetingId,
-            status: 'in_progress',
-            doctors,
-            updatedAt: new Date(),
+      if (this.mongoDb) {
+        await this.mongoDb.collection('meeting_prerequisites').updateOne(
+          { meeting_id: newMeetingId },
+          {
+            $set: {
+              meeting_id: newMeetingId,
+              status: 'in_progress',
+              doctors,
+              updatedAt: new Date(),
+            },
           },
-        },
-        { upsert: true },
-      );
-
-      console.log('[MeetingsService] Prérequis manuels stockés dans MongoDB pour la réunion', newMeetingId);
+          { upsert: true },
+        );
+        console.log('[MeetingsService] Prérequis manuels stockés dans MongoDB pour la réunion', newMeetingId);
+      }
     }
 
     return { meetingId: newMeetingId };
@@ -629,10 +672,14 @@ export class MeetingsService {
       participantsResult = await this.dataSource.query(participantsQuery, [meetingId, doctorId]);
     }
 
-    // 3. Récupérer les prérequis depuis MongoDB
-    const prerequisitesDoc = await this.mongoDb
-      .collection('meeting_prerequisites')
-      .findOne({ meeting_id: meetingId });
+    // 3. Récupérer les prérequis depuis MongoDB, ou les auto-générer si absents
+    let prerequisitesDoc = this.mongoDb
+      ? await this.mongoDb.collection('meeting_prerequisites').findOne({ meeting_id: meetingId })
+      : null;
+
+    if (!prerequisitesDoc && this.mongoDb) {
+      prerequisitesDoc = await this.initializePrerequisitesForMeeting(meetingId, participantsResult);
+    }
 
     // 4. Fusionner les données: ajouter les prérequis de chaque participant
     const participants: ParticipantWithPrerequisites[] = participantsResult.map((p: any) => {

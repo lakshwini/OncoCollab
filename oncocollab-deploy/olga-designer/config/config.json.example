@@ -1,0 +1,15 @@
+{
+  "DEV": {
+    "label": "Développement Local",
+    "firebaseOptions": {
+      "apiKey": "votre_firebase_api_key",
+      "authDomain": "votre-projet.firebaseapp.com",
+      "projectId": "votre-projet-id",
+      "storageBucket": "votre-projet.firebasestorage.app",
+      "messagingSenderId": "votre_sender_id",
+      "appId": "votre_app_id",
+      "measurementId": "votre_measurement_id"
+    },
+    "apiBaseUrl": "http://localhost:9091/"
+  }
+}

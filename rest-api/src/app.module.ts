@@ -16,11 +16,18 @@ import { PrerequisitesModule } from './prerequisites/prerequisites.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { OlgaModule } from './olga/olga.module';
 import { DocumentsModule } from './documents/documents.module';
+import { QdrantModule } from './qdrant/qdrant.module';
+import { ReportsModule } from './reports/reports.module';
+import { PersonalFilesModule } from './personal-files/personal-files.module';
 
 @Module({
   imports: [
     // Chargement des variables d'environnement (.env)
-    ConfigModule.forRoot({ isGlobal: true }),
+    // envFilePath avec fallbacks pour supporter le lancement depuis rest-api/ ou la racine du projet
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env', 'rest-api/.env'],
+    }),
 
     // Configuration de la connexion PostgreSQL
     TypeOrmModule.forRootAsync({
@@ -50,6 +57,9 @@ import { DocumentsModule } from './documents/documents.module';
     MeetingsModule,
     OlgaModule,
     DocumentsModule,
+    QdrantModule,
+    ReportsModule,
+    PersonalFilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

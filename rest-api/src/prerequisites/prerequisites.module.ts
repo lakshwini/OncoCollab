@@ -14,7 +14,13 @@ import { VideoModule } from '../video/video.module';
 const MongoDbProvider = {
   provide: 'PREREQUISITES_MONGO_DB',
   useFactory: async (configService: ConfigService): Promise<Db> => {
-    const uri = configService.get<string>('MONGODB_URI') || 'mongodb://localhost:27017';
+    const uri = configService.get<string>('MONGODB_URI');
+    if (!uri) {
+      throw new Error(
+        '[PrerequisitesModule] MONGODB_URI non défini dans .env. ' +
+        'Vérifiez que le fichier rest-api/.env contient MONGODB_URI et que le serveur est lancé depuis rest-api/'
+      );
+    }
     const client = new MongoClient(uri);
     await client.connect();
     const db = client.db('oncocollab_prerequisites');

@@ -1,16 +1,16 @@
 # ============================================================
-# docker-compose.yml — OncoCollab (stack complète)
+
 # ============================================================
 # Démarrage : docker-compose up --build
 # Arrêt     : docker-compose down
 # Reset BDD  : docker-compose down -v
-# ============================================================
+# ==================================================
 
 services:
 
   # ──────────────────────────────────────────
-  # FRONTEND — React / Vite → nginx
-  # http://localhost:80
+  # FRONTEND — React / Vite
+ 
   # ──────────────────────────────────────────
   frontend:
     build:
@@ -46,17 +46,32 @@ services:
       - .env.backend
     environment:
       # Overrides pour pointer sur les containers Docker (pas localhost)
+      # MONGODB_URI est défini dans .env.backend (gitignored) — pas de secret ici
       POSTGRES_HOST: postgres
-      MONGODB_URI: mongodb://mongo:27017/oncocollab_prerequisites
+      MONGODB_URI: ${MONGODB_URI}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      PIPELINE_URL: http://python-pipeline:8000
+      LOCAL_REPORTS_DIR: /data/reports
+      OLGA_BASE_URL: http://olga-api:9091
+    volumes:
+      # Volume partagé en lecture pour servir les PDF générés par python-pipeline
+      # (fallback quand Supabase n'est pas configuré)
+      - pipeline_reports:/data/reports:ro
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      qdrant:
+        condition: service_started
+      python-pipeline:
+        condition: service_started
     networks:
       - oncocollab
+      - olga
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/video/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -90,13 +105,16 @@ services:
 
   # ──────────────────────────────────────────
   # BASE DE DONNÉES — MongoDB
+  # ⚠️  IMPORTANT: Port 27018 (host) → 27017 (container)
+  #    Le backend accède via service DNS 'mongo:27017' (pas d'impact du mapping hôte)
+  #    Si conflit: docker-compose down -v && docker-compose up --build
   # ──────────────────────────────────────────
   mongo:
     image: mongo:7-jammy
     container_name: oncocollab_mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "27018:27017"  # ← Mappé sur 27018 pour éviter conflit avec MongoDB local
     env_file:
       - .env.mongo
     volumes:
@@ -111,6 +129,51 @@ services:
       start_period: 20s
     labels:
       - "com.oncocollab.service=mongo"
+
+  # ──────────────────────────────────────────
+  # QDRANT — Base vectorielle (recherche sémantique des rapports)
+  # http://localhost:6333  (REST)  /  6334  (gRPC)
+  # ──────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: oncocollab_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - oncocollab
+    labels:
+      - "com.oncocollab.service=qdrant"
+
+  # ──────────────────────────────────────────
+  # PYTHON PIPELINE — Whisper + Gemini + ReportLab (FastAPI)
+  # http://localhost:8001  (mappé sur 8000 du container)
+  # ──────────────────────────────────────────
+  python-pipeline:
+    build:
+      context: ./python-pipeline
+      dockerfile: Dockerfile
+      args:
+        WHISPER_MODEL: ${WHISPER_MODEL:-base}
+    container_name: oncocollab_python_pipeline
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      ORGANIZATION_NAME: OncoCollab
+      OUTPUT_DIR: /data/reports
+    volumes:
+      - pipeline_reports:/data/reports
+    networks:
+      - oncocollab
+    labels:
+      - "com.oncocollab.service=python-pipeline"
 
   # ──────────────────────────────────────────
   # OLGA DESIGNER — Interface designer
@@ -185,7 +248,7 @@ services:
     networks:
       - olga
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9091/ || exit 1"]
+      test: ["CMD-SHELL", "curl -s --max-time 3 http://localhost:9091/ > /dev/null"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -202,16 +265,18 @@ services:
     container_name: oncocollab_olga_mysql
     restart: always
     ports:
-      - "3306:3306"
+      - "3307:3306"  # 3307 côté hôte → évite le conflit avec un MySQL local. olga-api utilise olga-mysql:3306 via le réseau Docker (inchangé).
     env_file:
       - ./olga-designer/.env.mysql
     command: --default-authentication-plugin=mysql_native_password
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
-      - olga
+      olga:
+        aliases:
+          - mysql  # alias pour compatibilite avec env.back (jdbc:mysql://mysql:3306)
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u $$MYSQL_USER -p$$MYSQL_PASSWORD"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -259,6 +324,10 @@ volumes:
   mongo_data:
     driver: local
   mysql_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  pipeline_reports:
     driver: local
 
 # ============================================================

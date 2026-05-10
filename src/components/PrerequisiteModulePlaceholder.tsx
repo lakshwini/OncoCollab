@@ -180,18 +180,21 @@ export function PrerequisiteModulePlaceholder({
           </div>
         </div>
 
-        <OlgaDynamicForm
-          meetingId={meetingId}
-          prerequisiteId={resolvedPrerequisiteId}
-          role={doctor.speciality || 'Non spécifié'}
-          language={language}
-          variant="dark"
-          initialFieldKey={item.key}
-          title={language === 'fr' ? 'Formulaire Olga' : 'Olga Form'}
-          description={language === 'fr' ? 'Complétez et enregistrez les champs pour ce praticien.' : 'Complete and save the fields for this practitioner.'}
-          items={doctor.items}
-          onSaved={onSaved}
-        />
+        {/* Wrapper blanc pour forcer le thème clair du formulaire */}
+        <div className="olga-form bg-white text-gray-900 p-6 rounded-xl border border-gray-200 shadow-sm">
+          <OlgaDynamicForm
+            meetingId={meetingId}
+            prerequisiteId={resolvedPrerequisiteId}
+            role={doctor.speciality || 'Non spécifié'}
+            language={language}
+            variant="light"
+            initialFieldKey={item.key}
+            title={language === 'fr' ? 'Formulaire Olga' : 'Olga Form'}
+            description={language === 'fr' ? 'Complétez et enregistrez les champs pour ce praticien.' : 'Complete and save the fields for this practitioner.'}
+            items={doctor.items}
+            onSaved={onSaved}
+          />
+        </div>
       </div>
     </div>
   );
