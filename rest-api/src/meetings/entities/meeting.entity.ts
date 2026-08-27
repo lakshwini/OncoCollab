@@ -32,6 +32,9 @@ export class Meeting {
   @Column({ type: 'text', nullable: true, name: 'postponed_reason' })
   postponedReason: string;
 
+  @Column({ type: 'text', nullable: true, name: 'oncovision_room_id' })
+  oncovisionRoomId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

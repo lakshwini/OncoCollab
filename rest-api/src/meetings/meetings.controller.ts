@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -80,6 +81,30 @@ export class MeetingsController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.meetingsService.findOne(id);
+  }
+
+  /**
+   * Enregistre l'identifiant de la room OncoVision liée à cette réunion
+   * PATCH /meetings/:id/oncovision-room
+   *
+   * SÉCURITÉ: Accessible à tout participant de la réunion (pas réservé à l'organizer),
+   * car n'importe quel participant peut être le premier à ouvrir l'onglet Imagerie
+   * et donc créer la room OncoVision.
+   */
+  @Patch(':id/oncovision-room')
+  async updateOncovisionRoom(
+    @Param('id') id: string,
+    @Body() body: { oncovisionRoomId: string },
+    @Request() req: any,
+  ) {
+    const doctorId = req.user.doctorID || req.user.sub;
+    const isParticipant = await this.meetingsService.isParticipant(id, doctorId);
+
+    if (!isParticipant) {
+      throw new ForbiddenException('Seul un participant de la réunion peut effectuer cette action');
+    }
+
+    return this.meetingsService.updateOncovisionRoomId(id, body.oncovisionRoomId);
   }
 
   /**

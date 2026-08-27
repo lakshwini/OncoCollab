@@ -12,6 +12,7 @@ import {
   Loader2,
   Users,
   Plus,
+  Workflow,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -19,12 +20,34 @@ import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import type { PrerequisiteFormContext } from './PrerequisiteFormPage';
 import { useLanguage } from '../i18n';
+import { authService } from '../services/auth.service';
 import {
   prerequisitesService,
+  fetchMeetingPrerequisiteDetails,
   type MyMeetingPrerequisites,
   type MyPrerequisiteItem,
   type ParticipantPrerequisites,
+  type PrerequisiteDetailsResponse,
 } from '../services/prerequisites.service';
+// Partie PathoCollab //
+import PathoCollabCaseModal from './Patho/PathoCollabCaseModal';
+import PathoCollabExternalCaseDetail from './Patho/PathoCollabExternalCaseDetail';
+import { supabase } from '../lib/supabase';
+////////////////////////
+
+// Partie PathoCollab //
+// Infos patient issues de la table public.patients
+// SELECT patientid, patient_number, lastname, firstname, dateofbirth, sex, created_at FROM public.patients
+interface PathoCollabPatientInfo {
+  patientid: string;
+  patient_number: string;
+  lastname: string;
+  firstname: string;
+  dateofbirth: string;
+  sex: string | null;
+  created_at: string;
+}
+////////////////////////
 
 interface Props {
   userRole: UserRole;
@@ -32,6 +55,9 @@ interface Props {
   onOpenPrerequisiteForm?: (context: PrerequisiteFormContext) => void;
   onOpenScheduleModal?: () => void;
   onOpenPrerequisitePreparation?: (meetingId: string, meetingTitle: string) => void;
+  /** Ouverture directe demandée depuis une étape de l'éditeur de workflows externe */
+  pendingOpen?: { meetingId: string; itemKey: string } | null;
+  onPendingOpenHandled?: () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -49,6 +75,21 @@ function StatusIcon({ status }: { status: MyPrerequisiteItem['status'] }) {
   return <Circle className="w-4 h-4" style={{ color: '#dc2626' }} />;
 }
 
+// Partie PathoCollab //
+function computePathoCollabAge(dateOfBirth: string | null | undefined): number {
+  if (!dateOfBirth) return 0;
+  const birth = new Date(dateOfBirth);
+  if (Number.isNaN(birth.getTime())) return 0;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const hasNotHadBirthdayThisYear =
+    now.getMonth() < birth.getMonth() ||
+    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  if (hasNotHadBirthdayThisYear) age -= 1;
+  return age;
+}
+////////////////////////
+
 function MeetingStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
     scheduled: { label: 'Planifiée', className: 'bg-blue-50 text-blue-700 border border-blue-200' },
@@ -63,7 +104,7 @@ function MeetingStatusBadge({ status }: { status: string }) {
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenScheduleModal, onOpenPrerequisitePreparation }: Props) {
+export function MyPrerequisites({ userRole, onNavigate, onOpenPrerequisiteForm, onOpenScheduleModal, onOpenPrerequisitePreparation, pendingOpen, onPendingOpenHandled }: Props) {
   const { t } = useLanguage();
   const [meetings, setMeetings] = useState<MyMeetingPrerequisites[]>([]);
   const [expandedMeetings, setExpandedMeetings] = useState<Set<string>>(new Set());
@@ -72,6 +113,13 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
   const [adminLoading, setAdminLoading] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Partie PathoCollab //
+  const [pathocollabCaseIds, setPathocollabCaseIds] = useState<Record<string, string>>({});
+  const [pathocollabCreating, setPathocollabCreating] = useState<Set<string>>(new Set());
+  const [pathocollabOpenMeetingId, setPathocollabOpenMeetingId] = useState<string | null>(null);
+  const [pathocollabPatientNumbers, setPathocollabPatientNumbers] = useState<Record<string, string>>({});
+  ////////////////////////
 
   useEffect(() => {
     load();
@@ -159,12 +207,14 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
     }
   };
 
-  const openPrerequisiteForm = (meeting: MyMeetingPrerequisites) => {
+  const openPrerequisiteForm = (meeting: MyMeetingPrerequisites, preferredItemKey?: string) => {
     if (!onOpenPrerequisiteForm) {
       return;
     }
 
-    const target = meeting.prerequisites.find((item) => item.source === 'form') || meeting.prerequisites[0];
+    const target = (preferredItemKey && meeting.prerequisites.find((item) => (item.key || item.id) === preferredItemKey))
+      || meeting.prerequisites.find((item) => item.source === 'form')
+      || meeting.prerequisites[0];
     if (!target) {
       return;
     }
@@ -189,6 +239,223 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
       })),
     });
   };
+
+  // Ouverture directe demandée depuis une étape de l'éditeur de workflows externe
+  useEffect(() => {
+    if (!pendingOpen) return;
+    const meeting = meetings.find((m) => m.meeting_id === pendingOpen.meetingId);
+    if (meeting) {
+      setExpandedMeetings((prev) => new Set(prev).add(meeting.meeting_id));
+      openPrerequisiteForm(meeting, pendingOpen.itemKey);
+      onPendingOpenHandled?.();
+    }
+  }, [pendingOpen, meetings]);
+
+  // Partie PathoCollab //
+  const openPathoCollabAnalysis = async (meeting: MyMeetingPrerequisites) => {
+    const meetingId = meeting.meeting_id;
+    const storageKey = `pathocollab_case_${meetingId}`;
+    const existingCaseId = pathocollabCaseIds[meetingId] || localStorage.getItem(storageKey);
+
+    const getPathoCollabPatientId = (meeting: any) => {
+      return (
+        meeting.patient_number
+      );
+    };
+
+    setPathocollabCreating((prev) => new Set(prev).add(meetingId));
+    try {
+      let patientId = getPathoCollabPatientId(meeting);
+
+      // Cache local pour éviter d'appeler deux fois le même endpoint ci-dessous.
+      let meetingDetailsCache: PrerequisiteDetailsResponse | null | undefined;
+      const loadMeetingDetails = async () => {
+        if (meetingDetailsCache === undefined) {
+          try {
+            meetingDetailsCache = await fetchMeetingPrerequisiteDetails(meetingId, authService.getToken());
+          } catch (err) {
+            console.warn('[PathoCollab] Impossible de récupérer le détail de la réunion :', err);
+            meetingDetailsCache = null;
+          }
+        }
+        return meetingDetailsCache;
+      };
+      const loadMeetingPatientDetails = async () => (await loadMeetingDetails())?.patient;
+
+      // Patient lié à cette RCP (table public.meeting_patients)
+      // SELECT meeting_id, patient_id, discussion_order, notes, created_at FROM public.meeting_patients
+      if (supabase) {
+        const { data: meetingPatientLink, error: meetingPatientError } = await supabase
+          .from('meeting_patients')
+          .select('patient_id')
+          .eq('meeting_id', meetingId)
+          .order('discussion_order', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (meetingPatientError) {
+          console.warn('[PathoCollab] meeting_patients lookup error :', meetingPatientError);
+        } else if (meetingPatientLink?.patient_id) {
+          patientId = meetingPatientLink.patient_id;
+        }
+      }
+
+      // Fallback : le patient lié à la réunion vient des détails de la réunion (API backend —
+      // source de vérité réelle, contrairement à Supabase qui peut être non configuré ou
+      // pointer vers une base différente de celle utilisée par le reste de l'application).
+      if (!patientId) {
+        const details = await loadMeetingPatientDetails();
+        if (details?.patient_id) {
+          patientId = details.patient_id;
+        }
+      }
+
+      if (!patientId) {
+        setError("Impossible d’ouvrir PathoCollab : aucun identifiant patient n’est lié à cette réunion.");
+        return;
+      }
+
+      // Infos patient (table public.patients)
+      // SELECT patientid, patient_number, lastname, firstname, dateofbirth, sex, created_at FROM public.patients
+      let pathocollabPatientInfo: PathoCollabPatientInfo | null = null;
+      if (supabase) {
+        const { data, error: patientError } = await supabase
+          .from('patients')
+          .select('patientid, patient_number, lastname, firstname, dateofbirth, sex, created_at')
+          .eq('patientid', patientId)
+          .maybeSingle();
+
+        if (patientError) {
+          console.error(patientError);
+        } else {
+          pathocollabPatientInfo = data as PathoCollabPatientInfo | null;
+        }
+      }
+
+      // Fallback : Supabase n'a rien renvoyé (non configuré / base différente) — on réutilise
+      // les mêmes détails de réunion que ci-dessus (API backend) pour retrouver le vrai
+      // patient_number plutôt que de laisser PathoCollab générer un ID fictif "PAT-EXT-...".
+      if (!pathocollabPatientInfo) {
+        const details = await loadMeetingPatientDetails();
+        if (details && details.patient_id === patientId) {
+          pathocollabPatientInfo = {
+            patientid: details.patient_id,
+            patient_number: details.code_patient,
+            firstname: details.firstname,
+            lastname: details.lastname,
+            dateofbirth: '',
+            sex: null,
+            created_at: '',
+          };
+        }
+      }
+
+      // Affichage du champ "Patient" dans la popup : on préfère le patient_number
+      if (pathocollabPatientInfo?.patient_number) {
+        setPathocollabPatientNumbers((prev) => ({ ...prev, [meetingId]: pathocollabPatientInfo!.patient_number }));
+      }
+
+      if (existingCaseId) {
+        // Le cas existant a pu être créé avant que le vrai patient_number soit disponible
+        // (ex. identifiant de secours "PAT-EXT-..." généré par PathoCollab). On vérifie le
+        // patient réellement lié au cas côté PathoCollab avant de le réutiliser tel quel.
+        let existingCaseMatchesPatient = true;
+        try {
+          const caseRes = await fetch(`http://localhost:18002/api/cases/external/${encodeURIComponent(existingCaseId)}`);
+          if (caseRes.ok) {
+            const caseJson = await caseRes.json();
+            if (caseJson?.patient_id && caseJson.patient_id !== patientId) {
+              existingCaseMatchesPatient = false;
+            }
+          }
+        } catch (err) {
+          console.warn('[PathoCollab] Impossible de vérifier le cas existant :', err);
+        }
+
+        if (existingCaseMatchesPatient) {
+          setPathocollabCaseIds((prev) => ({ ...prev, [meetingId]: existingCaseId }));
+          setPathocollabOpenMeetingId(meetingId);
+          return;
+        }
+
+        // Cas lié au mauvais patient (ID fictif) : on l'oublie et on en recrée un correct.
+        localStorage.removeItem(storageKey);
+      }
+
+      const meetingData = await prerequisitesService.getMeetingPrerequisites(meetingId, false);
+
+      const response = await fetch('http://localhost:18002/api/cases/external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'oncocollab',
+          external_reference: meetingId,
+
+          patient: {
+            // UUID interne OncoCollab : c'est cet identifiant que PathoCollab utilise pour
+            // retrouver les images du patient. Le patient_number (PAT002) ne sert qu'à
+            // l'affichage (cf. patientLabel / resolvePatientId côté PathoCollabExternalCaseDetail).
+            id: patientId,
+            full_name: pathocollabPatientInfo
+              ? `${pathocollabPatientInfo.firstname} ${pathocollabPatientInfo.lastname}`
+              : `Patient ${patientId}`,
+            age: pathocollabPatientInfo ? computePathoCollabAge(pathocollabPatientInfo.dateofbirth) : 0,
+            gender: pathocollabPatientInfo?.sex || "Non renseigné",
+          },
+
+          title: `Analyse PathoCollab - ${meeting.meeting_title}`,
+          description: `Cas créé depuis les prérequis de la réunion ${meeting.meeting_title}`,
+
+          specialists_order: meetingData.doctors.map((doctor: { doctor_id: string }) => doctor.doctor_id),
+
+          metadata: {
+            meeting_id: meetingId,
+            meeting_title: meeting.meeting_title,
+            prerequisites: meetingData.doctors.map((doctor: { doctor_id: string; speciality: string; items: unknown }) => ({
+              doctor_id: doctor.doctor_id,
+              speciality: doctor.speciality,
+              items: doctor.items,
+            })),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur création cas PathoCollab');
+      }
+
+      const data = await response.json();
+
+      // Le cas ne crée pas automatiquement de workflow PathoCollab associé : il faut
+      // l'enregistrer explicitement (sinon l'onglet "Workflow" du cas reste vide/404).
+      try {
+        await fetch('http://localhost:18003/api/workflows/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            case_id: data.case_id,
+            specialists_order: meetingData.doctors.map((doctor: { doctor_id: string }) => doctor.doctor_id),
+          }),
+        });
+      } catch (err) {
+        console.warn('[PathoCollab] Impossible de créer le workflow du cas :', err);
+      }
+
+      localStorage.setItem(storageKey, data.case_id);
+      setPathocollabCaseIds((prev) => ({ ...prev, [meetingId]: data.case_id }));
+      setPathocollabOpenMeetingId(meetingId);
+    } catch (err) {
+      console.error(err);
+      setError("Impossible de créer ou d'ouvrir l'analyse PathoCollab.");
+    } finally {
+      setPathocollabCreating((prev) => {
+        const s = new Set(prev);
+        s.delete(meetingId);
+        return s;
+      });
+    }
+  };
+  ////////////////////////
 
   // ── Stats globales ──────────────────────────────────────────────────────────
 
@@ -390,13 +657,10 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-gray-700 mb-3">Vos tâches</p>
                           {meeting.prerequisites.map((item) => (
-                            <button
+                            <div
                               key={item.id}
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); handleToggle(meeting.meeting_id, item); }}
-                              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 hover:bg-white active:bg-gray-100"
+                              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 hover:bg-white"
                               style={{
-                                cursor: 'pointer',
                                 backgroundColor:
                                   item.status === 'done'
                                     ? '#ecfdf5'
@@ -405,20 +669,45 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
                                     : '#fef2f2',
                               }}
                             >
-                              <StatusIcon status={item.status} />
-                              <span className="text-sm font-medium flex-1 text-gray-900">
-                                {item.label}
-                              </span>
-                              {item.status === 'done' && (
-                                <span className="text-xs font-semibold text-emerald-700">Fait</span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleToggle(meeting.meeting_id, item); }}
+                                className="flex items-center gap-3 flex-1 text-left active:opacity-70"
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <StatusIcon status={item.status} />
+                                <span className="text-sm font-medium flex-1 text-gray-900">
+                                  {item.label}
+                                </span>
+                                {item.status === 'done' && (
+                                  <span className="text-xs font-semibold text-emerald-700">Fait</span>
+                                )}
+                                {item.status === 'in_progress' && (
+                                  <span className="text-xs font-semibold text-orange-700">En cours</span>
+                                )}
+                                {item.status === 'pending' && (
+                                  <span className="text-xs font-semibold text-red-700">À faire</span>
+                                )}
+                              </button>
+                              {item.workflow_id && (
+                                <button
+                                  type="button"
+                                  title="Voir le workflow associé"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(
+                                      `http://localhost:8090/workflow-editor.html?workflowId=${encodeURIComponent(item.workflow_id!)}`,
+                                      '_blank',
+                                      'noopener,noreferrer',
+                                    );
+                                  }}
+                                  className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                                >
+                                  <Workflow className="w-3.5 h-3.5" />
+                                  Workflow
+                                </button>
                               )}
-                              {item.status === 'in_progress' && (
-                                <span className="text-xs font-semibold text-orange-700">En cours</span>
-                              )}
-                              {item.status === 'pending' && (
-                                <span className="text-xs font-semibold text-red-700">À faire</span>
-                              )}
-                            </button>
+                            </div>
                           ))}
                         </div>
                       )}
@@ -430,7 +719,7 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
                             variant="outline"
                             size="sm"
                             className="w-full text-blue-600 border-blue-200 hover:bg-blue-50 transition-colors"
-                            onClick={(e) => {
+                            onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               loadAdminView(meeting.meeting_id);
                             }}
@@ -522,7 +811,7 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
                         <Button
                           size="sm"
                           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-sm"
-                          onClick={(e) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             if (onOpenPrerequisitePreparation) {
                               onOpenPrerequisitePreparation(meeting.meeting_id, meeting.meeting_title);
@@ -531,11 +820,27 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
                         >
                           ✓ Préparer les tâches
                         </Button>
+
+                        {/* Partie PathoCollab - réservé au rôle Pathologiste */}
+                        {userRole === 'pathologiste' && (
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-sm"
+                            disabled={!allDone || pathocollabCreating.has(meeting.meeting_id)}
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              openPathoCollabAnalysis(meeting);
+                            }}
+                          >
+                            {pathocollabCreating.has(meeting.meeting_id) ? 'Création du cas...' : 'Analyse PathoCollab'}
+                          </Button>
+                        )}
+
                         <Button
                           variant="outline"
                           size="sm"
                           className="flex-1 text-gray-700 border-gray-200 hover:bg-gray-50"
-                          onClick={(e) => { e.stopPropagation(); onNavigate('reunions'); }}
+                          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onNavigate('reunions'); }}
                         >
                           {t.myPrerequisites.viewDetails}
                         </Button>
@@ -548,6 +853,28 @@ export function MyPrerequisites({ onNavigate, onOpenPrerequisiteForm, onOpenSche
             })
           )}
         </div>
+
+        {/* Partie PathoCollab */}
+        <PathoCollabCaseModal
+          open={!!pathocollabOpenMeetingId}
+          title="Analyse PathoCollab"
+          onClose={() => setPathocollabOpenMeetingId(null)}
+        >
+          {pathocollabOpenMeetingId && pathocollabCaseIds[pathocollabOpenMeetingId] && (
+            <PathoCollabExternalCaseDetail
+              caseId={pathocollabCaseIds[pathocollabOpenMeetingId]}
+              apiBaseUrls={{
+                cases: 'http://localhost:18002',
+                workflow: 'http://localhost:18003',
+                images: 'http://localhost:18004',
+                reports: 'http://localhost:18005',
+              }}
+              currentUserId={authService.getCurrentUser()?.id}
+              patientLabel={pathocollabPatientNumbers[pathocollabOpenMeetingId]}
+              prerequisites={meetings.find((m) => m.meeting_id === pathocollabOpenMeetingId)?.prerequisites}
+            />
+          )}
+        </PathoCollabCaseModal>
 
         {/* Tip Section - Professional Help */}
         <Card className="bg-blue-50 border border-blue-200 rounded-2xl shadow-sm">

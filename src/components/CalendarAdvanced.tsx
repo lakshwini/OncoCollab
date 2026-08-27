@@ -14,6 +14,7 @@ import {
   Calendar,
   Eye,
   FileText,
+  Workflow,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -546,10 +547,20 @@ export function CalendarAdvanced({ onNavigate, onNavigateToPrerequisitePreparati
             <h1 className="text-4xl font-bold text-white mb-1">{t.calendar.title}</h1>
             <p className="text-gray-400">{t.calendar.subtitle}</p>
           </div>
-          <Button onClick={() => setIsScheduleModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
-            <Plus className="w-5 h-5 mr-2" />
-            {t.calendar.newRCP}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
+              onClick={() => window.open('http://localhost:8090/workflow-editor.html', '_blank', 'noopener,noreferrer')}
+            >
+              <Workflow className="w-5 h-5 mr-2" />
+              {t.calendar.workflow}
+            </Button>
+            <Button onClick={() => setIsScheduleModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+              <Plus className="w-5 h-5 mr-2" />
+              {t.calendar.newRCP}
+            </Button>
+          </div>
         </div>
 
         {/* Calendar Card */}

@@ -500,4 +500,55 @@ export class VideoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`[REPORT] Broadcasting report ready for meeting ${meetingId}`);
     this.server.to(meetingId).emit('report:ready', reportData);
   }
+
+  /**
+   * Diffuse un bloc de transcription finalisé à tous les participants de la réunion
+   */
+  broadcastTranscriptionBlock(meetingId: string, block: any) {
+    this.logger.log(`[TRANSCRIPTION] Block broadcast → meeting=${meetingId} speaker=${block?.speakerName}`);
+    this.server.to(meetingId).emit('transcription:block', block);
+  }
+
+  /**
+   * Relaie le texte live (interim) d'un locuteur à tous les autres participants
+   */
+  @UseGuards(JwtWsGuard)
+  @SubscribeMessage('transcription:live')
+  handleLiveText(client: AppSocket, payload: { roomId: string; speakerName: string; text: string }) {
+    if (!payload?.roomId) return;
+    client.to(payload.roomId).emit('transcription:live', {
+      speakerName: payload.speakerName || 'Inconnu',
+      text: payload.text || '',
+    });
+  }
+
+  /**
+   * Diffuse à TOUS les participants (y compris l'émetteur) qui a la parole.
+   * Le navigateur du destinataire (holderId === mySocketId) démarre son propre micro.
+   */
+  @UseGuards(JwtWsGuard)
+  @SubscribeMessage('transcription:floor-given')
+  handleFloorGiven(client: AppSocket, payload: { roomId: string; holderId: string; holderName: string; giverId?: string }) {
+    if (!payload?.roomId) return;
+    this.logger.log(`[FLOOR] Given → room=${payload.roomId} holder=${payload.holderName} giver=${payload.giverId || client.id}`);
+    this.server.to(payload.roomId).emit('transcription:floor-given', {
+      holderId:   payload.holderId,
+      holderName: payload.holderName || 'Inconnu',
+      giverId:    payload.giverId || client.id,
+    });
+  }
+
+  /**
+   * Annule la prise de parole — diffusé à TOUS.
+   * Le navigateur du holder arrête son enregistrement et sauvegarde le bloc.
+   */
+  @UseGuards(JwtWsGuard)
+  @SubscribeMessage('transcription:floor-revoked')
+  handleFloorRevoked(client: AppSocket, payload: { roomId: string; holderId: string }) {
+    if (!payload?.roomId) return;
+    this.logger.log(`[FLOOR] Revoked → room=${payload.roomId} holder=${payload.holderId}`);
+    this.server.to(payload.roomId).emit('transcription:floor-revoked', {
+      holderId: payload.holderId,
+    });
+  }
 }

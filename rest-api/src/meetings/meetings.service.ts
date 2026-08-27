@@ -5,6 +5,8 @@ import { Meeting } from './entities/meeting.entity';
 import { MongoClient, Db } from 'mongodb';
 import { ConfigService } from '@nestjs/config';
 import { getPrerequisiteTemplatesForSpeciality } from '../prerequisites/prerequisite-templates';
+import { WorkflowLinkService } from '../prerequisites/workflow-link.service';
+import { OncovisionService } from '../oncovision/oncovision.service';
 
 export interface MeetingWithParticipants {
   id: string;
@@ -17,6 +19,7 @@ export interface MeetingWithParticipants {
   organizerId: string | null;
   organizerName: string | null;
   postponedReason: string | null;
+  oncovisionRoomId: string | null;
   createdAt: Date;
   updatedAt: Date;
   participants: Array<{
@@ -72,6 +75,8 @@ export class MeetingsService {
     private readonly meetingRepository: Repository<Meeting>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly oncovisionService: OncovisionService,
+    private readonly workflowLinkService: WorkflowLinkService,
   ) {
     this.initMongo();
   }
@@ -267,6 +272,18 @@ export class MeetingsService {
           { upsert: true },
         );
         console.log('[MeetingsService] Prérequis manuels stockés dans MongoDB pour la réunion', newMeetingId);
+
+        // Association automatique d'UN workflow par médecin, contenant la chaîne complète
+        // de ses prérequis (non bloquant : un échec côté éditeur de workflows externe ne
+        // doit jamais empêcher la création de la réunion).
+        for (const doctor of doctors) {
+          void this.workflowLinkService.ensureWorkflowForDoctor(
+            newMeetingId,
+            doctor.doctor_id,
+            doctor.speciality,
+            doctor.items,
+          );
+        }
       }
     }
 
@@ -287,6 +304,7 @@ export class MeetingsService {
         m.status,
         m.created_by as "createdBy",
         m.postponed_reason as "postponedReason",
+        m.oncovision_room_id as "oncovisionRoomId",
         m.created_at as "createdAt",
         m.updated_at as "updatedAt",
         (
@@ -376,6 +394,7 @@ export class MeetingsService {
         m.status,
         m.created_by as "createdBy",
         m.postponed_reason as "postponedReason",
+        m.oncovision_room_id as "oncovisionRoomId",
         m.created_at as "createdAt",
         m.updated_at as "updatedAt",
         (
@@ -464,6 +483,7 @@ export class MeetingsService {
         m.status,
         m.created_by as "createdBy",
         m.postponed_reason as "postponedReason",
+        m.oncovision_room_id as "oncovisionRoomId",
         m.created_at as "createdAt",
         m.updated_at as "updatedAt",
         (
@@ -815,7 +835,19 @@ export class MeetingsService {
     );
 
     console.log(`[MeetingsService] Réunion ${meetingId} mise à jour`);
-    return this.findOne(meetingId);
+    const meeting = await this.findOne(meetingId);
+
+    // Réunion démarrée : on crée (ou récupère) la room d'annotation collaborative
+    // OncoVision côté serveur et on l'enregistre, si ce n'est pas déjà fait.
+    if (updateData.status === 'live' && !meeting.oncovisionRoomId) {
+      const patientIds = meeting.patients.map((p) => p.patientId);
+      const roomId = await this.oncovisionService.createOrGetCollaborationRoom(meetingId, patientIds);
+      if (roomId) {
+        return this.updateOncovisionRoomId(meetingId, roomId);
+      }
+    }
+
+    return meeting;
   }
 
   /**
@@ -881,6 +913,24 @@ export class MeetingsService {
     );
 
     console.log(`[MeetingsService] Date mise à jour pour la réunion ${id} → ${scheduledAt}`);
+    return this.findOne(id);
+  }
+
+  /**
+   * Enregistre l'identifiant de la room OncoVision associée à cette réunion
+   */
+  async updateOncovisionRoomId(id: string, oncovisionRoomId: string): Promise<MeetingWithParticipants> {
+    const meeting = await this.findOne(id);
+    if (!meeting) {
+      throw new NotFoundException(`Réunion ${id} non trouvée`);
+    }
+
+    await this.dataSource.query(
+      `UPDATE meetings SET oncovision_room_id = $1, updated_at = NOW() WHERE id = $2`,
+      [oncovisionRoomId, id],
+    );
+
+    console.log(`[MeetingsService] Room OncoVision enregistrée pour la réunion ${id} → ${oncovisionRoomId}`);
     return this.findOne(id);
   }
 

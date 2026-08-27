@@ -1008,6 +1008,286 @@ ALTER TABLE ONLY public.medical_images
 
 
 --
+-- ============================================================
+-- Tables ajoutées par les migrations rest-api/migrations/
+--   - 001_meeting_reports.sql (rapports RCP, transcriptions, espace perso)
+--   - 1735400000000-AddTranscriptionBlocks.ts (transcription temps réel SpeechCore)
+-- ============================================================
+--
+
+--
+-- Name: meeting_transcripts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.meeting_transcripts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    meeting_id uuid NOT NULL,
+    raw_transcript text NOT NULL,
+    language character varying(10) DEFAULT 'fr'::character varying,
+    duration_seconds integer,
+    created_by uuid,
+    speaker_blocks jsonb,
+    transcription_source character varying(20) DEFAULT 'whisper'::character varying NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+COMMENT ON COLUMN public.meeting_transcripts.speaker_blocks IS 'Array of transcription blocks with speaker information';
+
+
+COMMENT ON COLUMN public.meeting_transcripts.transcription_source IS 'Source de la transcription: speechcore, whisper, ou manual';
+
+
+--
+-- Name: meeting_reports; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.meeting_reports (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    meeting_id uuid NOT NULL,
+    transcript_id uuid,
+    title character varying(255) DEFAULT 'Compte-rendu de RCP'::character varying NOT NULL,
+    summary text,
+    structured_data jsonb,
+    pdf_url text,
+    pdf_filename character varying(255),
+    pdf_size_bytes integer,
+    qdrant_point_id character varying(64),
+    status character varying(20) DEFAULT 'ready'::character varying,
+    error_message text,
+    generated_by uuid,
+    generated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: doctor_personal_files; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.doctor_personal_files (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    doctor_id uuid NOT NULL,
+    report_id uuid,
+    meeting_id uuid,
+    file_type character varying(50) DEFAULT 'pdf'::character varying,
+    file_name character varying(255) NOT NULL,
+    file_url text NOT NULL,
+    file_size integer,
+    is_read boolean DEFAULT false,
+    access_count integer DEFAULT 0,
+    last_accessed_at timestamp without time zone,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: transcription_blocks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.transcription_blocks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    meeting_id uuid NOT NULL,
+    speaker_id uuid,
+    speaker_name character varying(255),
+    text text NOT NULL,
+    block_order integer NOT NULL,
+    timestamp_seconds integer,
+    source character varying(20) DEFAULT 'speechcore'::character varying NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+--
+-- Data for Name: meeting_transcripts; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.meeting_transcripts (id, meeting_id, raw_transcript, language, duration_seconds, created_by, speaker_blocks, transcription_source, created_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: meeting_reports; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.meeting_reports (id, meeting_id, transcript_id, title, summary, structured_data, pdf_url, pdf_filename, pdf_size_bytes, qdrant_point_id, status, error_message, generated_by, generated_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: doctor_personal_files; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.doctor_personal_files (id, doctor_id, report_id, meeting_id, file_type, file_name, file_url, file_size, is_read, access_count, last_accessed_at, created_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: transcription_blocks; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.transcription_blocks (id, meeting_id, speaker_id, speaker_name, text, block_order, timestamp_seconds, source, created_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Name: meeting_transcripts meeting_transcripts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_transcripts
+    ADD CONSTRAINT meeting_transcripts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: meeting_reports meeting_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_reports
+    ADD CONSTRAINT meeting_reports_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: doctor_personal_files doctor_personal_files_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doctor_personal_files
+    ADD CONSTRAINT doctor_personal_files_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: doctor_personal_files doctor_personal_files_doctor_id_report_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doctor_personal_files
+    ADD CONSTRAINT doctor_personal_files_doctor_id_report_id_key UNIQUE (doctor_id, report_id);
+
+
+--
+-- Name: transcription_blocks transcription_blocks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transcription_blocks
+    ADD CONSTRAINT transcription_blocks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_meeting_transcripts_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_meeting_transcripts_meeting_id ON public.meeting_transcripts USING btree (meeting_id);
+
+
+--
+-- Name: idx_meeting_reports_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_meeting_reports_meeting_id ON public.meeting_reports USING btree (meeting_id);
+
+
+--
+-- Name: idx_meeting_reports_generated_by; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_meeting_reports_generated_by ON public.meeting_reports USING btree (generated_by);
+
+
+--
+-- Name: idx_doctor_personal_files_doctor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_doctor_personal_files_doctor_id ON public.doctor_personal_files USING btree (doctor_id);
+
+
+--
+-- Name: idx_doctor_personal_files_report_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_doctor_personal_files_report_id ON public.doctor_personal_files USING btree (report_id);
+
+
+--
+-- Name: idx_transcription_blocks_meeting_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_transcription_blocks_meeting_order ON public.transcription_blocks USING btree (meeting_id, block_order);
+
+
+--
+-- Name: meeting_transcripts meeting_transcripts_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_transcripts
+    ADD CONSTRAINT meeting_transcripts_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meetings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: meeting_transcripts meeting_transcripts_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_transcripts
+    ADD CONSTRAINT meeting_transcripts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.doctors(doctorid);
+
+
+--
+-- Name: meeting_reports meeting_reports_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_reports
+    ADD CONSTRAINT meeting_reports_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meetings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: meeting_reports meeting_reports_transcript_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_reports
+    ADD CONSTRAINT meeting_reports_transcript_id_fkey FOREIGN KEY (transcript_id) REFERENCES public.meeting_transcripts(id) ON DELETE SET NULL;
+
+
+--
+-- Name: meeting_reports meeting_reports_generated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_reports
+    ADD CONSTRAINT meeting_reports_generated_by_fkey FOREIGN KEY (generated_by) REFERENCES public.doctors(doctorid);
+
+
+--
+-- Name: doctor_personal_files doctor_personal_files_doctor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doctor_personal_files
+    ADD CONSTRAINT doctor_personal_files_doctor_id_fkey FOREIGN KEY (doctor_id) REFERENCES public.doctors(doctorid) ON DELETE CASCADE;
+
+
+--
+-- Name: doctor_personal_files doctor_personal_files_report_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doctor_personal_files
+    ADD CONSTRAINT doctor_personal_files_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.meeting_reports(id) ON DELETE CASCADE;
+
+
+--
+-- Name: doctor_personal_files doctor_personal_files_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doctor_personal_files
+    ADD CONSTRAINT doctor_personal_files_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meetings(id) ON DELETE SET NULL;
+
+
+--
+-- Name: transcription_blocks transcription_blocks_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transcription_blocks
+    ADD CONSTRAINT transcription_blocks_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meetings(id) ON DELETE CASCADE;
+
+
+--
 -- PostgreSQL database dump complete
 --
 

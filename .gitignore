@@ -4,6 +4,14 @@ node_modules
 olga-designer/config/config.json
 olga-designer/config/apiKey.json
 
+PathoCollab/integration/config/pathocollab.json
+
+# PathoCollab — config Olga/Firebase (clé de compte de service + clé API Firebase réelles)
+PathoCollab/integration/olga-config/apiKey.json
+PathoCollab/integration/olga-config/config.json
+PathoCollab/integration/olga-config/olga-config/apiKey.json
+PathoCollab/integration/olga-config/olga-config/config.json
+
 # Env — jamais committer des secrets
 .env
 .env.*
@@ -12,6 +20,8 @@ olga-designer/config/apiKey.json
 # Exception : les fichiers exemple doivent être committés
 !*.example
 !**/*.example
+
+PathoCollab/integration/.env.example
 
 # Certificats
 *.pem

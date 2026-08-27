@@ -14,6 +14,8 @@ export interface MyPrerequisiteItem {
   source?: 'orthanc' | 'document' | 'form' | null;
   reference_id?: string | null;
   value?: unknown;
+  /** Identifiant du workflow associé dans l'éditeur externe (Api_Editeur_Workflow) */
+  workflow_id?: string;
 }
 
 export interface MyMeetingPrerequisites {

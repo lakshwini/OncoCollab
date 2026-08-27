@@ -213,8 +213,10 @@ export class ReportsController {
 // ─────────────────────────────────────────────────────────────────────
 @Controller('reports/file')
 export class ReportsFileController {
+  private readonly logger = new Logger(ReportsFileController.name);
+
   @Get(':filename')
-  serveLocalPdf(@Param('filename') filename: string, @Res() res: Response) {
+  async serveLocalPdf(@Param('filename') filename: string, @Res() res: Response) {
     if (
       filename.includes('/') ||
       filename.includes('..') ||
@@ -222,13 +224,42 @@ export class ReportsFileController {
     ) {
       throw new BadRequestException('Nom de fichier invalide');
     }
-    const dir = process.env.LOCAL_REPORTS_DIR || '/data/reports';
+
+    // 1. Fichier présent sur disque → on le sert directement
+    const dir = process.env.LOCAL_REPORTS_DIR || '/tmp/oncocollab-reports';
     const filePath = path.join(dir, filename);
-    if (!fs.existsSync(filePath)) {
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    // 2. Fichier absent → proxy vers le pipeline Python (qui garde ses PDFs)
+    const pipelineUrl = process.env.PIPELINE_URL || 'http://python-pipeline:8000';
+    const pipelinePdfUrl = `${pipelineUrl}/pdf/${encodeURIComponent(filename)}`;
+    this.logger.log(`PDF absent localement, proxy pipeline: ${pipelinePdfUrl}`);
+
+    try {
+      const upstream = await fetch(pipelinePdfUrl);
+      if (!upstream.ok) {
+        throw new NotFoundException('PDF introuvable');
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+
+      // Mise en cache locale pour les prochaines requêtes
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, buffer);
+      } catch (_) { /* non bloquant */ }
+
+      res.send(buffer);
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+      this.logger.error(`Proxy pipeline échoué: ${err.message}`);
       throw new NotFoundException('PDF introuvable');
     }
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-    fs.createReadStream(filePath).pipe(res);
   }
 }

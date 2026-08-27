@@ -8,7 +8,8 @@ import {
   Users,
   Plus,
   AlertCircle,
-  Loader
+  Loader,
+  Workflow
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -184,6 +185,14 @@ export function DashboardAdvanced({ onNavigate }: DashboardAdvancedProps) {
           <p className="text-gray-400">{t.dashboard.subtitle}</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
+            onClick={() => window.open('http://localhost:8090/workflow-editor.html', '_blank', 'noopener,noreferrer')}
+          >
+            <Workflow className="w-4 h-4 mr-2" />
+            {t.dashboard.workflow}
+          </Button>
           <Button
             variant="outline"
             className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700"

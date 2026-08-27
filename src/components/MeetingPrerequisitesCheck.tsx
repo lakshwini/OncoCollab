@@ -10,6 +10,10 @@ import type { PrerequisiteFormContext } from './PrerequisiteFormPage';
 import { prerequisitesService } from '../services/prerequisites.service';
 import { MeetingPrerequisites } from '../types/prerequisites';
 import { authService } from '../services/auth.service';
+// Partie PathoCollab //
+import  PathoCollabCaseModal  from './Patho/PathoCollabCaseModal';
+import PathoCollabExternalCaseDetail from './Patho/PathoCollabExternalCaseDetail';
+////////////////////////
 
 interface MeetingPrerequisitesCheckProps {
   onNavigate: (page: Page) => void;
@@ -33,6 +37,12 @@ export function MeetingPrerequisitesCheck({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [olgaError, setOlgaError] = useState<string | null>(null);
+
+  // Partie PathoCollab //
+  const [pathocollabCaseId, setPathocollabCaseId] = useState<string | null>(null);
+  const [pathocollabOpen, setPathocollabOpen] = useState(false);
+  const [creatingPathocollabCase, setCreatingPathocollabCase] = useState(false);
+  ////////////////////////
 
   // Charger les prérequis de la réunion
   useEffect(() => {
@@ -126,6 +136,82 @@ export function MeetingPrerequisitesCheck({
   const totalCompleted = myDoctor.progress.completed;
   const progressPercentage = myDoctor.progress.percentage;
   const canJoin = requiredCompleted === requiredPrerequisites.length;
+
+  // Partie PathoCollab // 
+  const openPathoCollabAnalysis = async () => {
+    if (!meetingData || !meetingId || !myDoctor) return;
+
+    try {
+      setCreatingPathocollabCase(true);
+      setError(null);
+
+      const storageKey = `pathocollab_case_${meetingId}`;
+      const existingCaseId = pathocollabCaseId || localStorage.getItem(storageKey);
+
+      if (existingCaseId) {
+        setPathocollabCaseId(existingCaseId);
+        setPathocollabOpen(true);
+        return;
+      }
+
+      const response = await fetch('http://localhost:18002/api/cases/external', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source: 'oncocollab',
+          external_reference: meetingId,
+
+          patient: {
+            id: meetingData.patient_id,
+            full_name: `Patient ${meetingData.patient_id}`,
+            age: 0,
+            gender: 'Non renseigné',
+            medical_history: '',
+            symptoms: '',
+          },
+
+          title: `Analyse PathoCollab - ${meetingTitle}`,
+          description: `Cas créé depuis les prérequis de la réunion ${meetingTitle}`,
+
+          specialists_order: meetingData.doctors.map((doctor) => doctor.doctor_id),
+
+          metadata: {
+            meeting_id: meetingId,
+            meeting_title: meetingTitle,
+            meeting_date: meetingDate,
+            meeting_time: meetingTime,
+            current_doctor: {
+              id: myDoctor.doctor_id,
+              speciality: myDoctor.speciality,
+            },
+            prerequisites: meetingData.doctors.map((doctor) => ({
+              doctor_id: doctor.doctor_id,
+              speciality: doctor.speciality,
+              items: doctor.items,
+            })),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur création cas PathoCollab');
+      }
+
+      const data = await response.json();
+
+      localStorage.setItem(storageKey, data.case_id);
+      setPathocollabCaseId(data.case_id);
+      setPathocollabOpen(true);
+    } catch (err) {
+      console.error(err);
+      setError("Impossible de créer ou d'ouvrir l'analyse PathoCollab.");
+    } finally {
+      setCreatingPathocollabCase(false);
+    }
+  };
+  //////////////////////
 
   const recalculateProgress = (items: typeof prerequisites) => {
     const total = items.length;
@@ -387,6 +473,16 @@ export function MeetingPrerequisitesCheck({
             <Button variant="outline" className="flex-1" onClick={() => onNavigate('reunions')}>
               Annuler
             </Button>
+
+            {/* Partie PathoCollab */}
+            <Button
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+              disabled={!canJoin || creatingPathocollabCase}
+              onClick={openPathoCollabAnalysis}
+            >
+              {creatingPathocollabCase ? 'Création du cas...' : 'Analyse PathoCollab'}
+            </Button>
+
             <Button
               className={`flex-1 ${
                 canJoin ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'
@@ -398,6 +494,25 @@ export function MeetingPrerequisitesCheck({
               {canJoin ? 'Rejoindre la réunion' : 'Pré-requis incomplets'}
             </Button>
           </div>
+
+          {/* Partie PathoCollab */}
+          <PathoCollabCaseModal
+            open={pathocollabOpen}
+            title="Analyse PathoCollab"
+            onClose={() => setPathocollabOpen(false)}
+          >
+            {pathocollabCaseId && (
+              <PathoCollabExternalCaseDetail
+                caseId={pathocollabCaseId}
+                apiBaseUrls={{
+                  cases: 'http://localhost:18002',
+                  workflow: 'http://localhost:18003',
+                  images: 'http://localhost:18004',
+                  reports: 'http://localhost:18005',
+                }}
+              />
+            )}
+          </PathoCollabCaseModal>
 
           {/* Help Text */}
           <div className="text-center text-sm text-gray-500">

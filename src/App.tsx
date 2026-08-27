@@ -25,6 +25,7 @@ import { authService } from './services/auth.service';
 import { LanguageProvider } from './i18n';
 import { WebRTCProvider, useWebRTC } from './contexts/WebRTCContext';
 import { VideoProvider, useVideo } from './contexts/VideoContext';
+import { TranscriptionProvider } from './contexts/TranscriptionContext';
 
 export type UserRole = 'radiologue' | 'oncologue' | 'chirurgien' | 'pathologiste' | 'infirmier' | 'coordinateur' | 'pharmacien' | 'admin';
 
@@ -98,6 +99,25 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [prerequisiteContext, setPrerequisiteContext] = useState<PrerequisiteFormContext | null>(null);
+  const [pendingWorkflowOpen, setPendingWorkflowOpen] = useState<{ meetingId: string; itemKey: string } | null>(null);
+
+  // Ouverture directe d'un prérequis depuis une étape de l'éditeur de workflows externe
+  // (lien "↗ Ouvrir dans OncoCollab" → ?openMeeting=...&openItem=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const meetingId = params.get('openMeeting');
+    const itemKey = params.get('openItem');
+    if (meetingId && itemKey) {
+      setPendingWorkflowOpen({ meetingId, itemKey });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && pendingWorkflowOpen) {
+      setCurrentPage('mes-prerequis');
+    }
+  }, [isAuthenticated, pendingWorkflowOpen]);
 
   // Restaurer la session au chargement de la page (async pour Supabase auto-refresh)
   useEffect(() => {
@@ -248,18 +268,19 @@ export default function App() {
   return (
     <VideoProvider>
       <WebRTCProvider>
-        <LanguageProvider>
-          {!isAuthenticated ? (
+        <TranscriptionProvider>
+          <LanguageProvider>
+            {!isAuthenticated ? (
             // Page de login
             <>
-              <LoginPage onLogin={handleLogin} />
-              <Toaster />
-            </>
-          ) : (
-            // Application authentifiée
-            <>
-              {/* Video Conference - Plein écran exclusif, pas de sidebar/header */}
-              {currentPage === 'video' ? (
+                <LoginPage onLogin={handleLogin} />
+                <Toaster />
+              </>
+            ) : (
+              // Application authentifiée
+              <>
+                {/* Video Conference - Plein écran exclusif, pas de sidebar/header */}
+                {currentPage === 'video' ? (
                 <VideoConferenceWrapper
                   onClose={() => navigateTo('reunions')}
                   meetingTitle={selectedMeetingInfo?.title || 'RCP'}
@@ -304,6 +325,8 @@ export default function App() {
                           onOpenPrerequisiteForm={navigateToPrerequisiteForm}
                           onOpenScheduleModal={() => setIsScheduleModalOpen(true)}
                           onOpenPrerequisitePreparation={navigateToPrerequisitePreparation}
+                          pendingOpen={pendingWorkflowOpen}
+                          onPendingOpenHandled={() => setPendingWorkflowOpen(null)}
                         />
                       )}
                       {currentPage === 'prerequisite-form' && prerequisiteContext && (
@@ -349,9 +372,10 @@ export default function App() {
                 currentPage={currentPage}
                 meetingTitle={selectedMeetingInfo?.title || 'RCP'}
               />
-            </>
-          )}
-        </LanguageProvider>
+              </>
+            )}
+          </LanguageProvider>
+        </TranscriptionProvider>
       </WebRTCProvider>
     </VideoProvider>
   );

@@ -1,15 +1,16 @@
 import { Page, User } from '../App';
-import { Calendar, Users, Video, Plus, Clock, MapPin, Info, Trash2, RefreshCw } from 'lucide-react';
+import { Calendar, Users, Video, Plus, Clock, MapPin, Info, Trash2, RefreshCw, Workflow } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { MeetingPreparationStatus } from './MeetingPreparationStatus';
 import { useLanguage } from '../i18n';
 import { useState, useEffect } from 'react';
-import { fetchMeetings, fetchMeetingsStats, fetchMeetingDetails, deleteMeeting, rescheduleMeeting, Meeting as ApiMeeting, MeetingStats, MeetingDetails } from '../services/meetings.service';
+import { fetchMeetings, fetchMeetingsStats, fetchMeetingDetails, fetchMeetingReports, deleteMeeting, rescheduleMeeting, Meeting as ApiMeeting, MeetingStats, MeetingDetails } from '../services/meetings.service';
 import { MeetingDetailsModal } from './MeetingDetailsModal';
 import { ScheduleRCPModal } from './ScheduleRCPModal';
 import { toast } from 'sonner';
+import { API_CONFIG } from '../config/api.config';
 
 interface RCPMeetingsProps {
   onNavigate: (page: Page) => void;
@@ -59,6 +60,27 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
     } finally {
       setIsLoadingDetails(false);
     }
+  };
+
+  // Ouvre le rapport PDF généré pour une réunion terminée (bouton "Détails" des réunions passées)
+  const handleOpenReport = async (meetingId: string) => {
+    try {
+      const reports = await fetchMeetingReports(meetingId, authToken || null);
+      const report = reports.find((r) => r.pdfUrl);
+      if (report?.pdfUrl) {
+        const fullUrl = report.pdfUrl.startsWith('/')
+          ? `${API_CONFIG.BASE_URL}${report.pdfUrl}`
+          : report.pdfUrl;
+        window.open(fullUrl, '_blank');
+        return;
+      }
+    } catch (err) {
+      console.error('[RCPMeetings] Erreur lors du chargement du rapport:', err);
+    }
+
+    // Pas de rapport disponible : on affiche les détails de la réunion
+    toast.info(language === 'fr' ? 'Aucun rapport disponible pour cette réunion' : 'No report available for this meeting');
+    handleOpenDetails(meetingId);
   };
 
   // Fonction pour recharger les réunions après création
@@ -259,6 +281,13 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
         <div className="flex gap-2">
           <Button
             variant="outline"
+            onClick={() => window.open('http://localhost:8090/workflow-editor.html', '_blank', 'noopener,noreferrer')}
+          >
+            <Workflow className="w-4 h-4 mr-2" />
+            {t.meetings.workflow}
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => onNavigate('calendrier')}
           >
             <Calendar className="w-4 h-4 mr-2" />
@@ -419,10 +448,10 @@ export function RCPMeetings({ onNavigate, onNavigateToPrerequisites, onNavigateT
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => handleOpenReport(meeting.id)}>
                     {t.meetings.report}
                   </Button>
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" onClick={() => handleOpenDetails(meeting.id)}>
                     {t.common.details}
                   </Button>
                 </div>

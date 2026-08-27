@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { useLanguage } from '../i18n';
 import { OlgaDynamicForm } from './OlgaDynamicForm';
+import { ImagerieViewer } from './ImagerieViewer';
 import {
   prerequisitesService,
   type MyPrerequisiteItem,
@@ -309,6 +310,16 @@ export function PrerequisitesPreparationPage({
 
                 {/* Form Container - Spacious */}
                 <div className="flex-1 overflow-y-auto p-8">
+                  {selectedPrerequisite.source === 'orthanc' && (
+                    <div className="mb-6">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Imagerie médicale</h3>
+                      <ImagerieViewer
+                        height={400}
+                        title={`Imagerie - ${selectedPrerequisite.label}`}
+                      />
+                    </div>
+                  )}
+
                   {selectedPrerequisiteId && (
                     <OlgaDynamicForm
                       key={`${meetingId}::${selectedPrerequisiteId}::${userRole}`}

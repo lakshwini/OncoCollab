@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Db } from 'mongodb';
 import { getPrerequisiteTemplatesForSpeciality } from './prerequisite-templates';
+import { WorkflowLinkService } from './workflow-link.service';
 
 type TemplateSource = 'document' | 'orthanc' | 'form';
 
@@ -31,6 +32,7 @@ export class PrerequisiteGeneratorService {
 
   constructor(
     @Inject('PREREQUISITES_MONGO_DB') private readonly mongoDb: Db,
+    private readonly workflowLinkService: WorkflowLinkService,
   ) {}
 
   private normalizeSource(source?: TemplateSource): 'document' | 'orthanc' {
@@ -85,6 +87,18 @@ export class PrerequisiteGeneratorService {
     this.logger.log(
       `Prerequis generes pour meeting ${meetingId}: ${prerequisitesDoc.doctors.length} medecin(s)`,
     );
+
+    // Association automatique d'UN workflow par médecin, contenant la chaîne complète de
+    // ses prérequis (non bloquant : un échec côté éditeur de workflows externe ne doit
+    // jamais empêcher la création des prérequis).
+    for (const doctor of prerequisitesDoc.doctors) {
+      void this.workflowLinkService.ensureWorkflowForDoctor(
+        meetingId,
+        doctor.doctor_id,
+        doctor.speciality,
+        doctor.items,
+      );
+    }
 
     return prerequisitesDoc;
   }

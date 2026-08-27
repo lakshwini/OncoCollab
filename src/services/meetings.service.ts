@@ -26,6 +26,7 @@ export interface Meeting {
   organizerId: string | null;
   organizerName: string | null;
   postponedReason: string | null;
+  oncovisionRoomId: string | null;
   createdAt: string;
   updatedAt: string;
   participants: MeetingParticipant[];
@@ -67,6 +68,17 @@ export interface MeetingDetails {
   endTime: string | null;
   status: string;
   participants: ParticipantWithPrerequisites[];
+}
+
+export interface MeetingReport {
+  id: string;
+  meetingId: string;
+  title: string;
+  summary: string | null;
+  pdfUrl: string | null;
+  pdfFilename: string | null;
+  status: string;
+  generatedAt: string;
 }
 
 /**
@@ -175,6 +187,33 @@ export async function fetchMeetingDetails(
     return details;
   } catch (error) {
     console.error('Error fetching meeting details:', error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère les rapports générés (PDF) pour une réunion donnée
+ * @param meetingId - ID de la réunion
+ * @param authToken - Token JWT pour l'authentification
+ */
+export async function fetchMeetingReports(
+  meetingId: string,
+  authToken: string | null
+): Promise<MeetingReport[]> {
+  try {
+    const response = await fetch(createApiUrl(`/meetings/${meetingId}/reports`), {
+      method: 'GET',
+      headers: createAuthHeaders(authToken),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch meeting reports: ${response.statusText}`);
+    }
+
+    const reports: MeetingReport[] = await response.json();
+    return reports;
+  } catch (error) {
+    console.error('Error fetching meeting reports:', error);
     throw error;
   }
 }
@@ -360,6 +399,32 @@ export async function rescheduleMeeting(
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }));
     throw new Error(error.message || `Failed to reschedule meeting: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Enregistre l'identifiant de la room OncoVision liée à une réunion
+ * (utilisé par l'onglet Imagerie lors de la création de la première room)
+ */
+export async function updateMeetingOncovisionRoom(
+  meetingId: string,
+  oncovisionRoomId: string,
+  authToken: string | null,
+): Promise<Meeting> {
+  const response = await fetch(createApiUrl(`/meetings/${meetingId}/oncovision-room`), {
+    method: 'PATCH',
+    headers: {
+      ...createAuthHeaders(authToken),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ oncovisionRoomId }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(error.message || `Failed to update OncoVision room: ${response.statusText}`);
   }
 
   return response.json();

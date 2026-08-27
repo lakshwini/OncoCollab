@@ -4,6 +4,7 @@ import {
   ExternalLink, FileText, Edit3, RefreshCw,
 } from 'lucide-react';
 import { API_CONFIG, createApiUrl, createAuthHeaders } from '../config/api.config';
+import { useTranscription } from '../contexts/TranscriptionContext';
 
 interface ReportRecorderProps {
   meetingId: string;
@@ -53,6 +54,7 @@ export function ReportRecorder({
   onClose,
   onSuccess,
 }: ReportRecorderProps) {
+  const transcriptionContext = useTranscription();
   const [stage, setStage] = useState<Stage>('idle');
   const [recordingTime, setRecordingTime] = useState(0);
   const [transcription, setTranscription] = useState('');
@@ -65,6 +67,9 @@ export function ReportRecorder({
   const chunksRef = useRef<BlobPart[]>([]);
   const audioBlobRef = useRef<Blob | null>(null);
 
+  // Check if we have transcription blocks from SpeechCore
+  const hasTranscriptionBlocks = transcriptionContext.blocks && transcriptionContext.blocks.length > 0;
+
   // Nettoyage à la fermeture
   useEffect(() => {
     return () => {
@@ -72,6 +77,16 @@ export function ReportRecorder({
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, []);
+
+  // Initialize with transcription blocks if available
+  useEffect(() => {
+    if (hasTranscriptionBlocks && stage === 'idle') {
+      const fullTranscription = transcriptionContext.getFullTranscription();
+      console.log('[ReportRecorder] 📝 Using transcription blocks:', fullTranscription.length, 'chars');
+      setTranscription(fullTranscription);
+      setStage('review');
+    }
+  }, [hasTranscriptionBlocks, stage, transcriptionContext]);
 
   const token = localStorage.getItem('onco_collab_token');
 
@@ -225,10 +240,12 @@ export function ReportRecorder({
   };
 
   const stageLabel: Record<Stage, string> = {
-    idle: 'Prêt à enregistrer',
+    idle: hasTranscriptionBlocks ? '📝 Transcription SpeechCore disponible' : 'Prêt à enregistrer',
     recording: `Enregistrement en cours — ${formatTime(recordingTime)}`,
     transcribing: 'Transcription Whisper en cours...',
-    review: 'Relisez la transcription puis générez le rapport',
+    review: hasTranscriptionBlocks
+      ? 'Relisez la transcription SpeechCore puis générez le rapport'
+      : 'Relisez la transcription puis générez le rapport',
     generating: 'Génération du rapport (Gemini + PDF)...',
     success: '✅ Rapport généré avec succès',
     error: '❌ Erreur',

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../auth/supabase.service';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Wrapper Supabase Storage pour les PDF de rapports RCP.
@@ -54,10 +56,16 @@ export class ReportsStorageService {
     pdfBuffer: Buffer,
   ): Promise<{ url: string; storage: 'supabase' | 'local' }> {
     if (!this.supabaseEnabled) {
-      // Pas de Supabase → on s'appuie sur le volume partagé `pipeline_reports`
-      // et on construira une URL relative servie par le backend.
+      const dir = this.config.get<string>('LOCAL_REPORTS_DIR', '/tmp/oncocollab-reports');
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+        this.logger.log(`PDF écrit sur disque: ${path.join(dir, filename)} (${pdfBuffer.length} bytes)`);
+      } catch (writeErr: any) {
+        this.logger.error(`Impossible d'écrire le PDF dans ${dir}: ${writeErr.message}`);
+        throw writeErr;
+      }
       const url = `/reports/file/${encodeURIComponent(filename)}`;
-      this.logger.log(`PDF stocké en local (volume Docker), URL=${url}`);
       return { url, storage: 'local' };
     }
 
@@ -81,6 +89,9 @@ export class ReportsStorageService {
         this.logger.warn(
           `Création bucket Supabase échouée (${createErr.message}) — fallback local`,
         );
+        const dir = this.config.get<string>('LOCAL_REPORTS_DIR', '/tmp/oncocollab-reports');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, filename), pdfBuffer);
         const url = `/reports/file/${encodeURIComponent(filename)}`;
         return { url, storage: 'local' };
       }
@@ -97,6 +108,9 @@ export class ReportsStorageService {
       this.logger.warn(
         `Upload Supabase échoué (${error.message}) — fallback local`,
       );
+      const dir = this.config.get<string>('LOCAL_REPORTS_DIR', '/tmp/oncocollab-reports');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, filename), pdfBuffer);
       const url = `/reports/file/${encodeURIComponent(filename)}`;
       return { url, storage: 'local' };
     }

@@ -19,6 +19,8 @@ import { DocumentsModule } from './documents/documents.module';
 import { QdrantModule } from './qdrant/qdrant.module';
 import { ReportsModule } from './reports/reports.module';
 import { PersonalFilesModule } from './personal-files/personal-files.module';
+import { TranscriptionLiveModule } from './transcription-live/transcription-live.module';
+import { PathocollabModule } from './pathocollab/pathocollab.module';
 
 @Module({
   imports: [
@@ -60,6 +62,8 @@ import { PersonalFilesModule } from './personal-files/personal-files.module';
     QdrantModule,
     ReportsModule,
     PersonalFilesModule,
+    TranscriptionLiveModule,
+    PathocollabModule,
   ],
   controllers: [AppController],
   providers: [AppService],

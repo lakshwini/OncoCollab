@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Save } from 'lucide-react';
+import { useVoiceInput } from '../hooks/useVoiceInput';
+import { AlertCircle, CheckCircle2, Loader2, Save, Mic, MicOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import {
@@ -7,6 +8,7 @@ import {
   type OlgaFormField,
 } from '../services/prerequisites.service';
 import { prerequisiteService } from '../services/prerequisiteService';
+import { speechCoreService, TranscriptionMessage } from '../services/speechcore.service';
 
 type OlgaValue = string | number | boolean | null;
 
@@ -129,6 +131,9 @@ export function OlgaDynamicForm({
   const [saved, setSaved] = useState(false);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
 
+  // Voice input — hook SpeechCore partagé
+  const { voiceFieldKey, isVoiceRecording, startVoice, stopVoice } = useVoiceInput();
+
   const itemMap = useMemo(
     () => new Map(items.map((item) => [item.key, item])),
     [items],
@@ -148,21 +153,17 @@ export function OlgaDynamicForm({
         setLoadingSchema(true);
         setError(null);
         setFormUnavailable(false);
-        const loadedFields = await prerequisitesService.getOlgaForm(role);
+
+        const schema = await prerequisitesService.getOlgaForm(role);
         if (!cancelled) {
-          if (loadedFields === null) {
-            setFields([]);
-            setFormUnavailable(true);
-          } else {
-            setFields(loadedFields);
-          }
-        }
-      } catch (loadError: any) {
-        if (!cancelled) {
-          const message = loadError?.message || 'Impossible de charger le formulaire Olga';
-          setError(message);
+          setFields(schema || []);
           setFormUnavailable(false);
-          onError?.(message);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[OlgaDynamicForm] Error loading schema:', err);
+          setFields([]);
+          setFormUnavailable(true);
         }
       } finally {
         if (!cancelled) {
@@ -171,11 +172,12 @@ export function OlgaDynamicForm({
       }
     };
 
-    loadSchema();
+    void loadSchema();
+
     return () => {
       cancelled = true;
     };
-  }, [role, onError]);
+  }, [role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,24 +185,18 @@ export function OlgaDynamicForm({
     const loadLatestAnswers = async () => {
       try {
         setLoadingAnswers(true);
-        setSaved(false);
-        setError(null);
-        setFormData({});
+        const response = await prerequisiteService.loadPrerequisiteResponse({
+          meeting_id: normalizedMeetingId,
+          prerequisite_id: normalizedPrerequisiteId,
+          role: normalizedRole,
+        });
 
-        const response = await prerequisiteService.getPrerequisiteResponse(
-          normalizedMeetingId,
-          normalizedPrerequisiteId,
-          role,
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        if (response && typeof response === 'object' && !Array.isArray(response)) {
-          setFormData(response as Record<string, unknown>);
-        } else {
-          setFormData({});
+        if (!cancelled) {
+          if (response && typeof response === 'object' && !Array.isArray(response)) {
+            setFormData(response as Record<string, unknown>);
+          } else {
+            setFormData({});
+          }
         }
       } catch {
         if (!cancelled) {
@@ -267,6 +263,7 @@ export function OlgaDynamicForm({
     const timeoutId = window.setTimeout(() => setSaved(false), 2000);
     return () => window.clearTimeout(timeoutId);
   }, [saved]);
+
 
   const handleSubmit = async () => {
     try {
@@ -375,19 +372,35 @@ export function OlgaDynamicForm({
                   </label>
 
                   {field.type === 'textarea' ? (
-                    <textarea
-                      id={`${meetingId}-${fieldId}`}
-                      className={`${sharedClassName} min-h-28 resize-y`}
-                      placeholder={field.placeholder || fieldLabel}
-                      value={(currentValue as string) || ''}
-                      autoFocus={initialFieldKey === field.key}
-                      onChange={(event) => {
-                        setFormData((prev) => ({
-                          ...prev,
-                          [fieldId]: event.target.value,
-                        }));
-                      }}
-                    />
+                    <div className="relative">
+                      <textarea
+                        id={`${meetingId}-${fieldId}`}
+                        className={`${sharedClassName} min-h-28 resize-y pr-10`}
+                        placeholder={field.placeholder || fieldLabel}
+                        value={(currentValue as string) || ''}
+                        autoFocus={initialFieldKey === field.key}
+                        onChange={(event) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            [fieldId]: event.target.value,
+                          }));
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => isVoiceRecording && voiceFieldKey === fieldId ? stopVoice() : startVoice(fieldId, String(currentValue || ''), (text) => setFormData(prev => ({ ...prev, [fieldId]: text })))}
+                        className="absolute right-2 top-2 p-2 rounded-md transition"
+                        style={{
+                          backgroundColor: isVoiceRecording && voiceFieldKey === fieldId ? '#ef4444' : '#3b82f6',
+                          color: '#ffffff',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                        title="Transcription vocale"
+                      >
+                        {isVoiceRecording && voiceFieldKey === fieldId ? <MicOff size={16} /> : <Mic size={16} />}
+                      </button>
+                    </div>
                   ) : field.type === 'select' && field.options ? (
                     <select
                       id={`${meetingId}-${fieldId}`}
@@ -427,20 +440,37 @@ export function OlgaDynamicForm({
                       <span className={`text-sm ${styles.label}`}>{field.placeholder || fieldLabel}</span>
                     </label>
                   ) : (
-                    <input
-                      id={`${meetingId}-${fieldId}`}
-                      className={sharedClassName}
-                      type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                      placeholder={field.placeholder || fieldLabel}
-                      value={(currentValue as string | number) || ''}
-                      autoFocus={initialFieldKey === field.key}
-                      onChange={(event) => {
-                        setFormData((prev) => ({
-                          ...prev,
-                          [fieldId]: event.target.value,
-                        }));
-                      }}
-                    />
+                    <div className="relative">
+                      <input
+                        id={`${meetingId}-${fieldId}`}
+                        className={`${sharedClassName} pr-10`}
+                        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                        placeholder={field.placeholder || fieldLabel}
+                        value={(currentValue as string | number) || ''}
+                        autoFocus={initialFieldKey === field.key}
+                        onChange={(event) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            [fieldId]: event.target.value,
+                          }));
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => isVoiceRecording && voiceFieldKey === fieldId ? stopVoice() : startVoice(fieldId, String(currentValue || ''), (text) => setFormData(prev => ({ ...prev, [fieldId]: text })))}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md transition hover:opacity-80"
+                        style={{
+                          backgroundColor: isVoiceRecording && voiceFieldKey === fieldId ? '#ef4444' : '#3b82f6',
+                          color: '#ffffff',
+                          border: 'none',
+                          cursor: 'pointer',
+                          zIndex: 10,
+                        }}
+                        title="Transcription vocale (clic pour démarrer)"
+                      >
+                        {isVoiceRecording && voiceFieldKey === fieldId ? <MicOff size={16} /> : <Mic size={16} />}
+                      </button>
+                    </div>
                   )}
 
                   {item?.status === 'done' && (

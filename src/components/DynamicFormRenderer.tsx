@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Mic, MicOff } from 'lucide-react';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 import { prerequisiteService } from '../services/prerequisiteService';
 
 export interface DynamicField {
@@ -37,6 +39,7 @@ export function DynamicFormRenderer({
 
   const [formData, setFormData] = useState<Record<string, string>>(initialValues);
   const [loading, setLoading] = useState<boolean>(false);
+  const { voiceFieldKey, isVoiceRecording, startVoice, stopVoice } = useVoiceInput();
   const [saving, setSaving] = useState<boolean>(false);
   const [saved, setSaved] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,22 +161,53 @@ export function DynamicFormRenderer({
             </label>
 
             {fieldType === 'textarea' ? (
-              <textarea
+              <div className="relative">
+                <textarea
+                  id={fieldId}
+                  name={fieldId}
+                  value={formData[fieldId] ?? ''}
+                  onChange={(e) => handleChange(fieldId, e.target.value)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => isVoiceRecording && voiceFieldKey === fieldId ? stopVoice() : startVoice(fieldId, formData[fieldId] ?? '', (text) => handleChange(fieldId, text))}
+                  className="absolute right-2 top-2 p-1.5 rounded transition hover:opacity-80"
+                  style={{ backgroundColor: isVoiceRecording && voiceFieldKey === fieldId ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  title="Dictée vocale"
+                >
+                  {isVoiceRecording && voiceFieldKey === fieldId ? <MicOff size={13} /> : <Mic size={13} />}
+                </button>
+              </div>
+            ) : fieldType === 'input:number' ? (
+              <input
                 id={fieldId}
                 name={fieldId}
+                type="number"
                 value={formData[fieldId] ?? ''}
                 onChange={(e) => handleChange(fieldId, e.target.value)}
                 className="w-full rounded border border-gray-300 px-3 py-2"
               />
             ) : (
-              <input
-                id={fieldId}
-                name={fieldId}
-                type={fieldType === 'input:number' ? 'number' : 'text'}
-                value={formData[fieldId] ?? ''}
-                onChange={(e) => handleChange(fieldId, e.target.value)}
-                className="w-full rounded border border-gray-300 px-3 py-2"
-              />
+              <div className="relative">
+                <input
+                  id={fieldId}
+                  name={fieldId}
+                  type="text"
+                  value={formData[fieldId] ?? ''}
+                  onChange={(e) => handleChange(fieldId, e.target.value)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => isVoiceRecording && voiceFieldKey === fieldId ? stopVoice() : startVoice(fieldId, formData[fieldId] ?? '', (text) => handleChange(fieldId, text))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition hover:opacity-80"
+                  style={{ backgroundColor: isVoiceRecording && voiceFieldKey === fieldId ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  title="Dictée vocale"
+                >
+                  {isVoiceRecording && voiceFieldKey === fieldId ? <MicOff size={13} /> : <Mic size={13} />}
+                </button>
+              </div>
             )}
           </div>
         );

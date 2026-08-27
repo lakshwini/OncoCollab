@@ -26,6 +26,23 @@ export class MeetingTranscript {
   @Column({ type: 'uuid', name: 'created_by', nullable: true })
   createdBy: string;
 
+  @Column({ type: 'jsonb', name: 'speaker_blocks', nullable: true })
+  speakerBlocks?: Array<{
+    speakerId?: string;
+    speakerName: string;
+    text: string;
+    blockOrder: number;
+    timestampSeconds?: number;
+  }>;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: 'whisper',
+    name: 'transcription_source',
+  })
+  transcriptionSource: 'speechcore' | 'whisper' | 'manual';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

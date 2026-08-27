@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Éditeur Workflow</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#f0f2f5;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#fff;border-bottom:1px solid #ddd;z-index:10;flex-wrap:wrap}
+.toolbar label{font-size:.82rem;font-weight:600;color:#555;white-space:nowrap}
+.toolbar select{padding:5px 8px;border:1px solid #ccc;border-radius:5px;font-size:.82rem;min-width:220px}
+.toolbar button{padding:5px 12px;border:none;border-radius:5px;cursor:pointer;font-size:.82rem;font-weight:600}
+.toolbar button.active{box-shadow:0 0 0 2px #fdba74}
+#status{font-size:.8rem;color:#666;margin-left:auto}
+#status.err{color:#dc2626}
+
+.main{display:flex;flex:1;overflow:hidden}
+
+.palette{width:170px;background:#fff;border-right:1px solid #ddd;padding:10px;overflow-y:auto;flex-shrink:0}
+.palette h3{font-size:.75rem;text-transform:uppercase;color:#999;margin-bottom:8px;letter-spacing:.5px}
+.palette-item{padding:10px;margin-bottom:5px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;cursor:grab;font-size:.82rem;text-align:center;user-select:none}
+.palette-item:hover{background:#e8f0fe;border-color:#2563eb}
+.palette-item .icon{font-size:1.2rem;display:block;margin-bottom:3px}
+
+#canvas-wrap{flex:1;position:relative;overflow:scroll;background:#f0f2f5}
+#canvas{position:relative;background-image:radial-gradient(circle,#ccc 1px,transparent 1px);background-size:24px 24px}
+#edges-svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible}
+#edges-svg path{pointer-events:auto}
+#edges-svg .edge-vis{pointer-events:none}
+#edges-svg .edge-vis:hover{stroke:#ef4444!important}
+
+.node{position:absolute;z-index:2;min-width:150px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.12);cursor:move;user-select:none}
+.node-header{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-radius:8px 8px 0 0;font-size:.78rem;font-weight:600;color:#fff}
+.node-body{padding:6px 10px;font-size:.8rem;border-radius:0 0 8px 8px;position:relative}
+.node .del{width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.35);color:#fff;cursor:pointer;font-size:.65rem;display:flex;align-items:center;justify-content:center;opacity:.4;transition:opacity .12s,background .12s}
+.node .del:hover{opacity:1;background:#dc2626}
+
+.port{position:absolute;width:14px;height:14px;border-radius:50%;background:#94a3b8;border:2px solid #fff;cursor:crosshair;z-index:5;transition:transform .12s,background .12s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.port:hover{transform:scale(1.4);background:#3b82f6}
+.port-out{bottom:-7px;left:50%;margin-left:-7px}
+.port-in{top:-7px;left:50%;margin-left:-7px}
+.port-hidden{display:none}
+
+.node-source{box-shadow:0 0 0 3px #f59e0b}
+.node-start .node-header{background:#059669}
+.node-start .node-body{background:#d1fae5;color:#065f46}
+.node-end .node-header{background:#dc2626}
+.node-end .node-body{background:#fee2e2;color:#991b1b}
+.node-form .node-header{background:#2563eb}
+.node-form .node-body{background:#dbeafe;color:#1e40af}
+.node-save .node-header{background:#7c3aed}
+.node-save .node-body{background:#ede9fe;color:#5b21b6}
+
+#versions-panel{position:fixed;right:-340px;top:0;width:320px;height:100%;background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15);z-index:100;transition:right .25s;padding:16px;overflow-y:auto}
+#versions-panel.open{right:0}
+#versions-panel .close{float:right;border:none;background:none;font-size:1.2rem;cursor:pointer;padding:4px}
+.ver-item{padding:10px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;font-size:.82rem}
+.ver-action{display:inline-block;padding:1px 8px;border-radius:8px;font-size:.7rem;font-weight:600;background:#dbeafe;color:#2563eb}
+.ver-restore{background:#f59e0b;color:#fff;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:.75rem;margin-top:4px}
+.ver-restore:hover{background:#d97706}
+
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:300;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:12px;padding:24px;width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.modal h2{font-size:1.05rem;margin-bottom:14px}
+.modal input[type=text]{width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:.85rem;margin-bottom:10px}
+.fl-item{padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:5px;cursor:pointer}
+.fl-item:hover{background:#f0f4ff;border-color:#2563eb}
+.fl-item .name{font-weight:600;font-size:.88rem}
+.fl-item .meta{font-size:.76rem;color:#888}
+
+.btn-primary{background:#2563eb;color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-success{background:#16a34a;color:#fff}
+.btn-success:hover{background:#15803d}
+.btn-link{background:#ea580c;color:#fff}
+.btn-link:hover{background:#c2410c}
+.btn-link.active{background:#9a3412;box-shadow:0 0 0 2px #fdba74}
+.btn-version{background:#6b7280;color:#fff}
+.btn-version:hover{background:#4b5563}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label>API</label>
+  <input id="inp-url" value="http://localhost:9092" style="width:130px">
+  <label>Workflow</label>
+  <select id="sel-wf" onchange="loadSelected()">
+    <option value="">— Chargez la liste —</option>
+  </select>
+  <button class="btn-primary" onclick="loadList()">⟳ Liste</button>
+
+  <button class="btn-success" onclick="save()">💾 Sauvegarder</button>
+  <button id="btn-link" class="btn-link" onclick="toggleLinkMode()">🔗 Lier</button>
+  <button class="btn-version" onclick="toggleVersions()">📜 Versions</button>
+  <span id="status">Prêt</span>
+</div>
+
+<div class="main">
+  <div class="palette">
+    <h3>⬇ Glisser sur le canvas</h3>
+    <div class="palette-item" data-type="form" draggable="true"><span class="icon">📋</span>Formulaire</div>
+    <div class="palette-item" data-type="save" draggable="true"><span class="icon">💾</span>Sauvegarde</div>
+  </div>
+  <div id="canvas-wrap">
+    <div id="canvas">
+      <svg id="edges-svg"></svg>
+    </div>
+  </div>
+</div>
+
+<div id="versions-panel">
+  <button class="close" onclick="toggleVersions()">✕</button>
+  <h3>📜 Versions</h3>
+  <div id="vlist"></div>
+</div>
+
+<div class="modal-overlay" id="modal-form">
+  <div class="modal">
+    <h2 id="modal-title">Choisir un formulaire</h2>
+    <input type="text" id="modal-search" placeholder="Rechercher un formulaire..." oninput="filterForms()">
+    <div id="modal-list"></div>
+    <button onclick="closeFormModal()" style="margin-top:10px;padding:6px 16px;border:1px solid #ccc;border-radius:6px;cursor:pointer">Annuler</button>
+  </div>
+</div>
+
+<script>
+const $id = s => document.getElementById(s);
+const url = () => $id('inp-url').value.replace(/\/+$/, '');
+const status = (msg, err) => { const el = $id('status'); el.textContent = msg; el.className = err ? 'err' : ''; };
+const num = v => isNaN(v = Number(v)) ? 0 : v;
+// URL de base d'OncoCollab, pour ouvrir le prérequis/formulaire correspondant à une étape.
+const ONCOCOLLAB_URL = 'http://localhost';
+
+const ST = { id:'', nodes:[], edges:[], forms:[], formsError:'', formCallback:null, linkMode:false, linkSource:null };
+
+async function api(method, path, body) {
+  const opts = { method, headers:{} };
+  if (body) { opts.headers['Content-Type']='application/json'; opts.body = JSON.stringify(body); }
+  const res = await fetch(url() + path, opts);
+  const text = await res.text();
+  if (!res.ok) throw new Error(text.substring(0,200));
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+async function loadList() {
+  status('Chargement liste...');
+  try {
+    const list = await api('GET', '/workflows');
+    const select = $id('sel-wf');
+    select.innerHTML = '<option value="">— Sélectionnez un workflow —</option>'
+      + (Array.isArray(list) ? list : []).map(w =>
+        `<option value="${w.workflow_id}">${w.workflow_label||w.workflow_id} [${w.workflow_id}]</option>`
+      ).join('');
+    status(`✓ ${select.options.length-1} workflows`);
+    try {
+      const f = await api('GET', '/forms');
+      ST.forms = Array.isArray(f) ? f : [];
+      ST.formsError = '';
+    } catch(e) { ST.forms = []; ST.formsError = e.message; }
+  } catch(e) { status('Erreur liste: '+e.message, true); }
+}
+
+function loadSelected() {
+  const id = $id('sel-wf').value;
+  if (id) loadWorkflow(id);
+}
+
+function openFormModal(callback, title) {
+  ST.formCallback = callback;
+  $id('modal-title').textContent = title || 'Choisir un formulaire';
+  $id('modal-search').value = '';
+  filterForms();
+  $id('modal-form').classList.add('show');
+}
+
+async function loadForms() {
+  try {
+    const f = await api('GET', '/forms');
+    ST.forms = Array.isArray(f) ? f : [];
+    ST.formsError = '';
+    filterForms();
+  } catch(e) { ST.formsError = e.message; filterForms(); }
+}
+
+function filterForms() {
+  const q = $id('modal-search').value.toLowerCase();
+  const list = $id('modal-list');
+  if (!ST.forms || !ST.forms.length) {
+    const err = ST.formsError ? `<div style="color:#dc2626;font-size:.78rem;margin:4px 0">Erreur: ${ST.formsError}</div>` : '';
+    list.innerHTML = `<div style="color:#999;margin-top:10px">Aucun formulaire disponible</div>${err}
+      <button onclick="loadForms()" style="margin-top:8px;padding:5px 12px;border:1px solid #ccc;border-radius:6px;cursor:pointer">⟳ Recharger</button>`;
+    return;
+  }
+  const filtered = q ? ST.forms.filter(f => (f.form_label||'').toLowerCase().includes(q) || (f.form_id||'').toLowerCase().includes(q)) : ST.forms;
+  list.innerHTML = filtered.map(f =>
+    `<div class="fl-item" data-id="${f.form_id||f.id||''}" data-label="${f.form_label||'?'}" data-grp='${JSON.stringify(f.form_groups||f.groups||[])}'>
+      <div class="name">${f.form_label||'?'}</div>
+      <div class="meta">${f.form_id||f.id||''}${(f.form_groups||f.groups||[]).length?' · '+(f.form_groups||f.groups).join(', '):''}</div>
+    </div>`
+  ).join('');
+  list.querySelectorAll('.fl-item').forEach(el => el.onclick = () => {
+    const g = JSON.parse(el.dataset.grp);
+    ST.formCallback && ST.formCallback({form_id:el.dataset.id, form_label:el.dataset.label, form_groups:g});
+    closeFormModal();
+  });
+}
+
+function closeFormModal() { $id('modal-form').classList.remove('show'); ST.formCallback = null; }
+
+function toggleLinkMode() {
+  ST.linkMode = !ST.linkMode;
+  ST.linkSource = null;
+  $id('btn-link').classList.toggle('active', ST.linkMode);
+  document.querySelectorAll('.port').forEach(p => p.classList.toggle('port-hidden', !ST.linkMode));
+  document.querySelectorAll('.node').forEach(n => n.classList.remove('node-source'));
+  status(ST.linkMode ? 'Cliquez sur un port SORTIE (bas) puis ENTRÉE (haut)' : 'Mode lien désactivé');
+}
+
+function createEdge(src, tgt) {
+  if (src === tgt) { status('Même nœud', true); return false; }
+  if (ST.edges.some(e => e.source === src && e.target === tgt)) { status('Lien déjà existant', true); return false; }
+  ST.edges.push({ id:'e'+Date.now().toString(36), source:src, target:tgt, animated:true });
+  render();
+  return true;
+}
+
+function removeEdge(src, tgt) {
+  ST.edges = ST.edges.filter(e => !(e.source === src && e.target === tgt));
+  render();
+}
+
+function delNode(id) {
+  const n = ST.nodes.find(n => n.id === id);
+  if (!n || n.type === 'start' || n.type === 'end') return;
+  ST.nodes = ST.nodes.filter(n => n.id !== id);
+  ST.edges = ST.edges.filter(e => e.source !== id && e.target !== id);
+  render();
+}
+
+let _drag = null;
+document.addEventListener('mousedown', e => {
+  if (ST.linkMode) return;
+  const el = e.target.closest('.node');
+  if (!el || e.target.closest('.del') || e.target.closest('.port')) return;
+  const node = ST.nodes.find(n => n.id === el.dataset.id);
+  if (!node) return;
+  _drag = { node, el, sx:e.clientX, sy:e.clientY, ox:num(node.position.x), oy:num(node.position.y) };
+  el.style.cursor = 'grabbing'; el.style.zIndex = 10;
+});
+document.addEventListener('mousemove', e => {
+  if (!_drag) return;
+  _drag.node.position.x = _drag.ox + e.clientX - _drag.sx;
+  _drag.node.position.y = _drag.oy + e.clientY - _drag.sy;
+  _drag.el.style.left = _drag.node.position.x + 'px';
+  _drag.el.style.top = _drag.node.position.y + 'px';
+  renderEdges();
+});
+document.addEventListener('mouseup', () => {
+  if (!_drag) return;
+  _drag.el.style.cursor = 'move'; _drag.el.style.zIndex = 2;
+  _drag = null;
+});
+
+document.addEventListener('click', e => {
+  if (e.target.closest('.del')) {
+    const nodeEl = e.target.closest('.node');
+    if (nodeEl) delNode(nodeEl.dataset.id);
+  }
+});
+
+function render() {
+  document.querySelectorAll('.node').forEach(n => n.remove());
+  ST.nodes.forEach(n => {
+    const t = n.type === 'start' ? 'start' : n.type === 'end' ? 'end' : n.type === 'save' ? 'save' : 'form';
+    const el = document.createElement('div');
+    el.className = `node node-${t}${ST.linkSource === n.id ? ' node-source' : ''}`;
+    el.dataset.id = n.id;
+    el.style.left = num(n.position.x) + 'px';
+    el.style.top = num(n.position.y) + 'px';
+
+    const header = t === 'start' ? '🏁 Début' : t === 'end' ? '🏁 Fin' : t === 'save' ? '💾 ' + (n.data?.collectionLabel || 'Sauvegarde') : '📋 ' + (n.data?.form_label || n.data?.form_id || 'Formulaire');
+    let body = '';
+    if (t === 'form' && n.data?.form_groups?.length) body += '<div>👥 ' + n.data.form_groups.join(', ') + '</div>';
+    if (t === 'save' && n.data?.collectionLabel) body += '<div>🏛 ' + n.data.collectionLabel + '</div>';
+    if (n.data?.form_id) body += '<div style="color:#999;font-size:.68rem">' + n.data.form_id + '</div>';
+    const inc = ST.edges.filter(e => e.target === n.id).length;
+    const out = ST.edges.filter(e => e.source === n.id).length;
+    if (inc || out) body += `<div style="color:#bbb;font-size:.62rem;margin-top:2px">⬅${inc} ➡${out}</div>`;
+    // Étape liée à un prérequis OncoCollab (cf. oncocollab_item_key) : lien pour ouvrir
+    // le vrai formulaire/prérequis correspondant dans OncoCollab.
+    const oncoLink = n.data?.oncocollab_item_key && n.data?.oncocollab_meeting_id
+      ? `<button class="open-oncocollab" style="margin-top:4px;font-size:.68rem;padding:2px 6px;border:1px solid #93c5fd;border-radius:5px;background:#eff6ff;color:#1d4ed8;cursor:pointer">↗ Ouvrir dans OncoCollab</button>`
+      : '';
+    if (oncoLink) body += oncoLink;
+    const rem = t !== 'start' && t !== 'end';
+    el.innerHTML = `<div class="node-header"><span>${header}</span>${rem?'<button class="del">✕</button>':''}</div>
+      <div class="node-body">${body}</div>
+      <div class="port port-out ${ST.linkMode?'':'port-hidden'}"></div>
+      <div class="port port-in ${ST.linkMode?'':'port-hidden'}"></div>`;
+    $id('canvas').appendChild(el);
+
+    if (t === 'form') el.addEventListener('dblclick', e => { e.stopPropagation(); openFormModal(fd => { Object.assign(n.data, fd); render(); status('Formulaire changé: '+fd.form_label); }, 'Changer le formulaire'); });
+    el.querySelector('.port-out').onclick = e => { e.stopPropagation(); onPortClick(n.id, 'out'); };
+    el.querySelector('.port-in').onclick = e => { e.stopPropagation(); onPortClick(n.id, 'in'); };
+    const openBtn = el.querySelector('.open-oncocollab');
+    if (openBtn) openBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const params = new URLSearchParams({
+        openMeeting: n.data.oncocollab_meeting_id,
+        openItem: n.data.oncocollab_item_key,
+      });
+      window.open(`${ONCOCOLLAB_URL}/?${params.toString()}`, '_blank', 'noopener,noreferrer');
+    });
+  });
+  renderEdges();
+}
+
+function onPortClick(nodeId, dir) {
+  if (!ST.linkMode) return;
+  if (dir === 'out') {
+    ST.linkSource = ST.linkSource === nodeId ? null : nodeId;
+    document.querySelectorAll('.node').forEach(n => n.classList.toggle('node-source', n.dataset.id === ST.linkSource));
+    status(ST.linkSource ? `Source: ${nodeId} → cliquez sur ENTRÉE (haut) d'un autre nœud` : 'Source désélectionnée');
+  } else if (ST.linkSource) {
+    createEdge(ST.linkSource, nodeId);
+    if (ST.edges.some(e => e.source === ST.linkSource && e.target === nodeId)) {
+      ST.linkSource = nodeId;
+      document.querySelectorAll('.node').forEach(n => n.classList.toggle('node-source', n.dataset.id === nodeId));
+    }
+  } else status('Cliquez d\'abord sur un port SORTIE (bas)', true);
+}
+
+function renderEdges() {
+  const svg = $id('edges-svg');
+  const paths = [];
+  ST.edges.forEach(e => {
+    const src = ST.nodes.find(n => n.id === e.source);
+    const tgt = ST.nodes.find(n => n.id === e.target);
+    if (!src || !tgt) return;
+    const sx = num(src.position.x) + 75, sy = num(src.position.y) + 56;
+    const tx = num(tgt.position.x) + 75, ty = num(tgt.position.y) - 7;
+    const d = `M${sx},${sy} C${sx},${(sy+ty)/2} ${tx},${(sy+ty)/2} ${tx},${ty}`;
+    paths.push(`<path d="${d}" stroke="transparent" stroke-width="14" fill="none" style="pointer-events:auto;cursor:pointer" data-s="${e.source}" data-t="${e.target}"/>`);
+    paths.push(`<path class="edge-vis" d="${d}" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="${e.animated?'6,3':''}" marker-end="url(#a)"/>`);
+  });
+  svg.innerHTML = `<defs><marker id="a" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10Z" fill="#94a3b8"/></marker></defs>` + paths.join('');
+  svg.addEventListener('click', e => {
+    const p = e.target.closest('path[data-s]');
+    if (p && confirm(`Supprimer le lien ${p.dataset.s} → ${p.dataset.t} ?`)) removeEdge(p.dataset.s, p.dataset.t);
+  });
+}
+
+function fitCanvas() {
+  const c = $id('canvas'), w = $id('canvas-wrap');
+  if (!ST.nodes.length) {
+    c.style.width = w.clientWidth + 'px';
+    c.style.height = w.clientHeight + 'px';
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  ST.nodes.forEach(n => {
+    const x = num(n.position.x), y = num(n.position.y);
+    if (x < minX) minX = x; if (y < minY) minY = y;
+    if (x + 160 > maxX) maxX = x + 160; if (y + 60 > maxY) maxY = y + 60;
+  });
+  const ox = Math.max(0, -minX + 80), oy = Math.max(0, -minY + 80);
+  if (ox || oy) ST.nodes.forEach(n => { n.position.x = num(n.position.x) + ox; n.position.y = num(n.position.y) + oy; });
+  minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+  ST.nodes.forEach(n => {
+    const x = num(n.position.x), y = num(n.position.y);
+    if (x < minX) minX = x; if (y < minY) minY = y; if (x + 160 > maxX) maxX = x + 160; if (y + 60 > maxY) maxY = y + 60;
+  });
+  c.style.width = Math.max(w.clientWidth, maxX + 100) + 'px';
+  c.style.height = Math.max(w.clientHeight, maxY + 100) + 'px';
+  w.scrollLeft = Math.max(0, (minX + maxX) / 2 - w.clientWidth / 2);
+  w.scrollTop = Math.max(0, (minY + maxY) / 2 - w.clientHeight / 2 + 40);
+}
+
+async function loadWorkflow(id) {
+  ST.id = id;
+  ST.linkMode = false; ST.linkSource = null;
+  $id('btn-link').classList.remove('active');
+  status('Chargement...');
+  try {
+    const d = await api('GET', '/workflows/' + encodeURIComponent(id));
+    if (!d || typeof d !== 'object') throw new Error('Réponse invalide');
+    ST.nodes = (d.nodes || []).map(n => ({ ...n, position:{x:num(n.position?.x), y:num(n.position?.y)}, data:n.data||{} }));
+    ST.edges = d.edges || [];
+    fitCanvas();
+    render();
+    status(`✓ ${ST.nodes.length} nœuds, ${ST.edges.length} liens`);
+    document.querySelectorAll('.port').forEach(p => p.classList.toggle('port-hidden', !ST.linkMode));
+  } catch(e) { status('Erreur: '+e.message, true); }
+}
+
+async function save() {
+  if (!ST.id) { status('Chargez d\'abord un workflow', true); return; }
+  status('Sauvegarde...');
+  try {
+    const full = await api('GET', '/workflows/' + encodeURIComponent(ST.id));
+    full.nodes = ST.nodes;
+    full.edges = ST.edges;
+    await api('PUT', '/workflows/' + encodeURIComponent(ST.id), { edited_by:'editor', workflow:full });
+    status(`✓ ${ST.nodes.length} nœuds, ${ST.edges.length} liens`);
+    loadVersions();
+  } catch(e) { status('Erreur: '+e.message, true); }
+}
+
+document.querySelectorAll('.palette-item').forEach(el => {
+  el.addEventListener('dragstart', e => { e.dataTransfer.setData('type', el.dataset.type); e.dataTransfer.effectAllowed='copy'; });
+});
+function onCanvasDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+$id('canvas').addEventListener('dragover', onCanvasDragOver);
+$id('canvas-wrap').addEventListener('dragover', onCanvasDragOver);
+$id('edges-svg').addEventListener('dragover', onCanvasDragOver);
+$id('canvas-wrap').addEventListener('drop', e => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('type');
+  if (!type) return;
+  const cr = $id('canvas').getBoundingClientRect();
+  const cw = $id('canvas-wrap');
+  const x = e.clientX - cr.left + cw.scrollLeft - 60;
+  const y = e.clientY - cr.top + cw.scrollTop - 20;
+  if (type === 'form') {
+    openFormModal(fd => {
+      const nodeId = 'n' + Date.now().toString(36);
+      ST.nodes.push({ id:nodeId, type:'form', position:{x,y}, data:{ ...fd, id:nodeId, type:'form', form_actors:[] } });
+      fitCanvas(); render(); status('Formulaire ajouté: '+fd.form_label);
+    }, 'Choisir un formulaire');
+  } else {
+    const nodeId = 'n' + Date.now().toString(36);
+    ST.nodes.push({ id:nodeId, type:'save', position:{x,y}, data:{ collectionLabel:'Nouvelle collection', collectionId:'', type:'save', id:nodeId } });
+    fitCanvas(); render(); status('Sauvegarde ajoutée');
+  }
+});
+
+async function loadVersions() {
+  if (!ST.id) return;
+  try {
+    const v = await api('GET', '/workflows/'+encodeURIComponent(ST.id)+'/versions');
+    const list = $id('vlist');
+    if (!v || !v.length) { list.innerHTML = '<div style="color:#999">Aucune version</div>'; return; }
+    list.innerHTML = v.map(x => {
+      const d = x.created_at ? new Date(x.created_at.seconds*1000).toLocaleString() : '?';
+      return `<div class="ver-item"><span class="ver-action">${x.action||'?'}</span> <span style="font-size:.8rem;color:#666">${d}</span>
+        <div style="font-size:.76rem;color:#888;margin:4px 0">${x.created_by||'inconnu'}</div>
+        <button class="ver-restore" onclick="restoreVer('${x.version_id}')">Restaurer</button></div>`;
+    }).join('');
+  } catch {}
+}
+
+function toggleVersions() { $id('versions-panel').classList.toggle('open'); loadVersions(); }
+
+async function restoreVer(vid) {
+  if (!confirm('Restaurer cette version ?')) return;
+  try {
+    await api('POST', '/workflows/'+encodeURIComponent(ST.id)+'/versions/'+vid+'/restore', { edited_by:'editor' });
+    status('✓ Version restaurée');
+    await loadWorkflow(ST.id);
+  } catch(e) { status('Erreur: '+e.message, true); }
+}
+
+// Préchargement automatique via ?workflowId=... (ex. lien "Voir le workflow" depuis OncoCollab).
+// Rétrocompatible : sans paramètre, comportement inchangé (liste vide, rien de présélectionné).
+(async () => {
+  await loadList();
+  const initialWorkflowId = new URLSearchParams(window.location.search).get('workflowId');
+  if (initialWorkflowId) {
+    const select = $id('sel-wf');
+    const option = Array.from(select.options).find(o => o.value === initialWorkflowId);
+    if (option) select.value = initialWorkflowId;
+    loadWorkflow(initialWorkflowId);
+  }
+})();
+</script>
+</body>
+</html>

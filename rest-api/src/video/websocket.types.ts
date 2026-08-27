@@ -80,6 +80,18 @@ export interface ServerToClientEvents {
     generatedBy?: string;
     generatedAt?: string;
   }) => void;
+
+  // Diffusion d'un bloc de transcription finalisé
+  "transcription:block": (block: any) => void;
+
+  // Texte live (interim) d'un locuteur
+  "transcription:live": (data: { speakerName: string; text: string }) => void;
+
+  // Notification que la parole a été donnée à un participant
+  "transcription:floor-given": (data: { holderId: string; holderName: string; giverId: string }) => void;
+
+  // Notification que la prise de parole a été annulée/révoquée
+  "transcription:floor-revoked": (data: { holderId: string }) => void;
 }
 
 // Événements que le Client envoie au Serveur
@@ -106,4 +118,13 @@ export interface ClientToServerEvents {
 
   // Mise à jour temps réel des statuts micro/caméra (alias)
   "media-update": (payload: { roomId: string; micEnabled: boolean; videoEnabled: boolean }) => void;
+
+  // Texte live (interim) du locuteur courant
+  "transcription:live": (payload: { roomId: string; speakerName: string; text: string }) => void;
+
+  // Donner la parole à un participant
+  "transcription:floor-given": (payload: { roomId: string; holderId: string; holderName: string; giverId?: string }) => void;
+
+  // Révoquer/terminer la prise de parole
+  "transcription:floor-revoked": (payload: { roomId: string; holderId: string }) => void;
 }

@@ -56,6 +56,31 @@ interface ReportReadyPayload {
   _ts?: number;
 }
 
+export interface TranscriptionBlockPayload {
+  id?: string;
+  meetingId: string;
+  speakerName: string;
+  text: string;
+  blockOrder: number;
+  timestampSeconds?: number;
+  source?: string;
+  _ts?: number;
+}
+
+export interface LiveTextPayload {
+  speakerName: string;
+  text: string;
+  _ts?: number;
+}
+
+export interface FloorEventPayload {
+  type: 'given' | 'revoked';
+  holderId: string;
+  holderName?: string;
+  giverId?: string;
+  _ts?: number;
+}
+
 interface WebRTCContextType {
   // Connexion
   isConnected: boolean;
@@ -86,6 +111,12 @@ interface WebRTCContextType {
   // Rapport généré temps réel
   lastReportReady: ReportReadyPayload | null;
 
+  // Transcription temps réel
+  lastTranscriptionBlock: TranscriptionBlockPayload | null;
+  lastLiveText: LiveTextPayload | null;
+  lastFloorEvent: FloorEventPayload | null;
+  emitToRoom: (event: string, data: any) => void;
+
   // ✅ WebRTC Monitoring & TURN debugging
   getConnectionStats: () => Promise<any>;
   startMonitoring: (intervalMs?: number) => () => void;
@@ -98,6 +129,9 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<AppSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const streamRef = useRef<MediaStream | null>(null);
+  // Config ICE (STUN/TURN) — initialisée avec la config baked-in du build,
+  // puis remplacée par la config runtime envoyée par le backend via 'ice-config'
+  const iceServersRef = useRef<RTCConfiguration>(API_CONFIG.ICE_SERVERS);
   // Buffer ICE candidates that arrive before setRemoteDescription
   const pendingIceCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
@@ -111,6 +145,9 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
   const [audioLevels, setAudioLevels] = useState<Map<string, number>>(new Map());
   const [lastPrerequisiteUpdate, setLastPrerequisiteUpdate] = useState<PrerequisiteUpdatePayload | null>(null);
   const [lastReportReady, setLastReportReady] = useState<ReportReadyPayload | null>(null);
+  const [lastTranscriptionBlock, setLastTranscriptionBlock] = useState<TranscriptionBlockPayload | null>(null);
+  const [lastLiveText, setLastLiveText] = useState<LiveTextPayload | null>(null);
+  const [lastFloorEvent, setLastFloorEvent] = useState<FloorEventPayload | null>(null);
 
   const {
     stream,
@@ -197,8 +234,8 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
       return peerConnectionsRef.current.get(targetSocketId)!;
     }
 
-    // ✅ Utiliser la configuration ICE complète avec TURN depuis .env
-    const iceConfig = API_CONFIG.ICE_SERVERS;
+    // ✅ Utiliser la configuration ICE runtime (TURN backend) si reçue, sinon fallback build-time (.env)
+    const iceConfig = iceServersRef.current;
     console.log(`[WebRTC] 🧊 Configuration ICE pour ${targetSocketId}:`, {
       stun_servers: iceConfig.iceServers?.filter(s => s.urls?.toString().includes('stun')) || [],
       turn_servers: iceConfig.iceServers?.filter(s => s.urls?.toString().includes('turn'))?.map(s => ({
@@ -554,6 +591,21 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
         setConnectionStatus('Erreur');
       });
 
+      // ✅ Config ICE (STUN/TURN) envoyée par le backend au join-room.
+      // Remplace la config baked-in du build par la config runtime (.env.backend / coturn),
+      // pour que les identifiants TURN restent corrects même avec une image frontend prébuilt.
+      socket.on('ice-config', (config: RTCConfiguration) => {
+        if (config?.iceServers?.length) {
+          iceServersRef.current = config;
+          console.log('[WebRTC] 🧊 Config ICE runtime reçue du backend:', {
+            stun_servers: config.iceServers.filter(s => s.urls?.toString().includes('stun')),
+            turn_servers: config.iceServers
+              .filter(s => s.urls?.toString().includes('turn'))
+              .map(s => ({ urls: s.urls, username: s.username ? '***' : undefined })),
+          });
+        }
+      });
+
       socket.on('self-info', (participant: ParticipantPayload) => {
         const normalized = normalizeParticipantPayload(participant);
         setParticipants(prev => {
@@ -683,7 +735,16 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
       socket.on('user-left', (userId: string) => {
         console.log(`[WebRTC] ➖ Utilisateur parti: ${userId}`);
         closePeerConnection(userId);
-        
+
+        // Retirer le participant de la liste — sinon il reste "fantôme"
+        // dans la liste des participants et la liste déroulante "donner la parole"
+        setParticipants(prev => {
+          if (!prev.has(userId)) return prev;
+          const next = new Map(prev);
+          next.delete(userId);
+          return next;
+        });
+
         const remaining = peerConnectionsRef.current.size;
         console.log(`[WebRTC] 📊 ${remaining} PeerConnection(s) restante(s)`);
       });
@@ -870,6 +931,29 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
       socket.on('report:ready', (data) => {
         console.log('[WebRTC] 📄 Rapport disponible:', data.reportId, '—', data.title);
         setLastReportReady({ ...data, _ts: Date.now() });
+      });
+
+      // Bloc de transcription finalisé — diffusé par le backend à tous les participants
+      socket.on('transcription:block', (block: TranscriptionBlockPayload) => {
+        console.log('[WebRTC] 🎙️ Bloc reçu:', block.speakerName, block.text?.slice(0, 40));
+        setLastTranscriptionBlock({ ...block, _ts: Date.now() });
+      });
+
+      // Texte live (interim) — relayé par le serveur depuis le locuteur courant
+      socket.on('transcription:live', (data: { speakerName: string; text: string }) => {
+        setLastLiveText({ ...data, _ts: Date.now() });
+      });
+
+      // Prise de parole — diffusée à tous : le navigateur du holder démarre son micro
+      socket.on('transcription:floor-given', (data: { holderId: string; holderName: string; giverId?: string }) => {
+        console.log(`[WebRTC] 🎤 Parole donnée → holder=${data.holderId} (${data.holderName}) moi=${socket.id}`);
+        setLastFloorEvent({ type: 'given', ...data, _ts: Date.now() });
+      });
+
+      // Fin de prise de parole — le navigateur du holder arrête et sauvegarde
+      socket.on('transcription:floor-revoked', (data: { holderId: string }) => {
+        console.log(`[WebRTC] 🔇 Parole révoquée → holder=${data.holderId}`);
+        setLastFloorEvent({ type: 'revoked', ...data, _ts: Date.now() });
       });
     }
   }, [createPeerConnection, closePeerConnection, setInMeeting]);
@@ -1199,6 +1283,12 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(intervalId);
   }, [getConnectionStats]);
 
+  const emitToRoom = useCallback((event: string, data: any) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(event as any, data);
+    }
+  }, []);
+
   const value: WebRTCContextType = {
     isConnected,
     mySocketId,
@@ -1217,6 +1307,10 @@ export function WebRTCProvider({ children }: { children: React.ReactNode }) {
     currentRoomId,
     lastPrerequisiteUpdate,
     lastReportReady,
+    lastTranscriptionBlock,
+    lastLiveText,
+    lastFloorEvent,
+    emitToRoom,
     getConnectionStats,
     startMonitoring,
   };

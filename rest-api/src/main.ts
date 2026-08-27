@@ -3,12 +3,42 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import * as fs from 'fs';
+import * as net from 'net';
 import * as path from 'path';
+
+function isPortAvailable(port: number, host = '0.0.0.0'): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.unref();
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'EADDRINUSE') {
+        resolve(false);
+        return;
+      }
+
+      reject(error);
+    });
+
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+
+    server.listen(port, host);
+  });
+}
 
 async function bootstrap() {
   try {
     const port = parseInt(process.env.PORT || '3002', 10);
     const useHttps = process.env.USE_HTTPS === 'true';
+
+    if (!(await isPortAvailable(port))) {
+      console.error(`❌ Le port ${port} est déjà utilisé.`);
+      console.error(`💡 Libérez le port avec: lsof -ti tcp:${port} | xargs kill -9`);
+      console.error('💡 Ou définissez une autre valeur pour PORT.');
+      process.exit(1);
+    }
 
     let app: NestExpressApplication;
 
@@ -87,11 +117,17 @@ async function bootstrap() {
     console.log(`💡 Pour activer HTTPS: Définir USE_HTTPS=true dans .env\n`);
 
   } catch (error) {
-    console.error('❌ Erreur lors du démarrage du serveur:', error.message);
-    if (error.code === 'EADDRINUSE') {
-      console.error('💡 Astuce: Le port est déjà utilisé. Utilisez ./PORT_CLEANUP.sh');
+    const serverError = error as NodeJS.ErrnoException;
+
+    if (serverError.code === 'EADDRINUSE') {
+      console.error(`❌ Le port ${process.env.PORT || '3002'} est déjà utilisé.`);
+      console.error(`💡 Libérez le port avec: lsof -ti tcp:${process.env.PORT || '3002'} | xargs kill -9`);
+      console.error('💡 Ou changez PORT dans le .env.');
+      process.exit(1);
     }
-    console.error(error.stack);
+
+    console.error('❌ Erreur lors du démarrage du serveur:', serverError.message);
+    console.error(serverError.stack);
     process.exit(1);
   }
 }

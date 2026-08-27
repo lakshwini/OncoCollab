@@ -24,138 +24,181 @@ function ensureRequired(value: string, name: string): void {
   }
 }
 
+function localKey(meeting_id: string, prerequisite_id: string, role: string): string {
+  return `prereq_${meeting_id}_${prerequisite_id}_${normalizeRole(role)}`;
+}
+
+// ──────────────────────────────────────────────────────────────
+// GET — Supabase en priorité, localStorage en fallback
+// ──────────────────────────────────────────────────────────────
 async function getPrerequisiteResponse(
   meeting_id: string,
   prerequisite_id: string,
   role: string,
 ): Promise<PrerequisiteAnswers | null> {
-  const normalizedMeetingId = normalizeIdentifier(meeting_id);
-  const normalizedPrerequisiteId = normalizeIdentifier(prerequisite_id);
-
-  ensureRequired(normalizedMeetingId, 'meeting_id');
-  ensureRequired(normalizedPrerequisiteId, 'prerequisite_id');
+  ensureRequired(normalizeIdentifier(meeting_id), 'meeting_id');
+  ensureRequired(normalizeIdentifier(prerequisite_id), 'prerequisite_id');
   ensureRequired(role, 'role');
 
-  const normalizedRole = normalizeRole(role);
+  const mid  = normalizeIdentifier(meeting_id);
+  const pid  = normalizeIdentifier(prerequisite_id);
+  const r    = normalizeRole(role);
+  const lsKey = localKey(mid, pid, r);
 
-  if (!supabase) {
-    console.warn('Supabase désactivé — getPrerequisiteResponse retourne null');
-    return null;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('prerequisite_responses')
+        .select('answers')
+        .eq('meeting_id', mid)
+        .eq('prerequisite_id', pid)
+        .eq('role', r)
+        .maybeSingle();
+
+      if (!error && data?.answers != null) {
+        // Mettre à jour le cache local
+        try { localStorage.setItem(lsKey, JSON.stringify(data.answers)); } catch {}
+        return data.answers as PrerequisiteAnswers;
+      }
+
+      if (error) {
+        console.warn('[prerequisiteService] GET Supabase error:', error.message);
+      }
+    } catch (err) {
+      console.warn('[prerequisiteService] GET Supabase unreachable:', (err as Error).message);
+    }
   }
 
-  const { data, error } = await supabase
-    .from('prerequisite_responses')
-    .select('answers')
-    .eq('meeting_id', normalizedMeetingId)
-    .eq('prerequisite_id', normalizedPrerequisiteId)
-    .eq('role', normalizedRole)
-    .maybeSingle();
+  // Fallback : cache localStorage
+  try {
+    const raw = localStorage.getItem(lsKey);
+    if (raw) return JSON.parse(raw) as PrerequisiteAnswers;
+  } catch {}
 
-  if (error) {
-    throw new Error(`Failed to fetch prerequisite response: ${error.message}`);
-  }
-
-  return (data?.answers as PrerequisiteAnswers | null) ?? null;
+  return null;
 }
 
+async function loadPrerequisiteResponse(input: {
+  meeting_id: string;
+  prerequisite_id: string;
+  role: string;
+}): Promise<PrerequisiteAnswers | null> {
+  return getPrerequisiteResponse(input.meeting_id, input.prerequisite_id, input.role);
+}
+
+// ──────────────────────────────────────────────────────────────
+// SAVE — Supabase en priorité, localStorage comme cache
+// ──────────────────────────────────────────────────────────────
 async function savePrerequisiteResponse(
   input: SavePrerequisiteResponseInput,
 ): Promise<PrerequisiteAnswers> {
-  const normalizedMeetingId = normalizeIdentifier(input.meeting_id);
-  const normalizedPrerequisiteId = normalizeIdentifier(input.prerequisite_id);
-
-  ensureRequired(normalizedMeetingId, 'meeting_id');
-  ensureRequired(normalizedPrerequisiteId, 'prerequisite_id');
+  ensureRequired(normalizeIdentifier(input.meeting_id), 'meeting_id');
+  ensureRequired(normalizeIdentifier(input.prerequisite_id), 'prerequisite_id');
   ensureRequired(input.role, 'role');
 
-  if (!supabase) {
-    console.warn('Supabase désactivé — savePrerequisiteResponse ignoré');
-    return input.answers;
-  }
+  const mid  = normalizeIdentifier(input.meeting_id);
+  const pid  = normalizeIdentifier(input.prerequisite_id);
+  const r    = normalizeRole(input.role);
+  const lsKey = localKey(mid, pid, r);
 
   const payload = {
-    meeting_id: normalizedMeetingId,
-    patient_id: input.patient_id || '',
-    prerequisite_id: normalizedPrerequisiteId,
-    role: normalizeRole(input.role),
-    answers: input.answers,
+    meeting_id:     mid,
+    patient_id:     input.patient_id || '',
+    prerequisite_id: pid,
+    role:           r,
+    answers:        input.answers,
   };
 
-  const { data, error } = await supabase
-    .from('prerequisite_responses')
-    .upsert(payload, { onConflict: 'meeting_id,prerequisite_id,role' })
-    .select('answers')
-    .single();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('prerequisite_responses')
+        .upsert(payload, { onConflict: 'meeting_id,prerequisite_id,role' })
+        .select('answers')
+        .single();
 
-  if (error) {
-    throw new Error(`Failed to save prerequisite response: ${error.message}`);
+      if (!error) {
+        // Succès Supabase — mettre à jour le cache local
+        try { localStorage.setItem(lsKey, JSON.stringify(input.answers)); } catch {}
+        return (data?.answers as PrerequisiteAnswers) ?? input.answers;
+      }
+
+      console.warn('[prerequisiteService] SAVE Supabase error:', error.message);
+    } catch (err) {
+      console.warn('[prerequisiteService] SAVE Supabase unreachable:', (err as Error).message);
+    }
   }
 
-  return (data?.answers as PrerequisiteAnswers | null) ?? input.answers;
+  // Fallback : localStorage uniquement
+  try { localStorage.setItem(lsKey, JSON.stringify(input.answers)); } catch {}
+  return input.answers;
 }
 
+// ──────────────────────────────────────────────────────────────
+// REALTIME — abonnement Supabase
+// ──────────────────────────────────────────────────────────────
 function subscribeToPrerequisiteResponseUpdates(
   meeting_id: string,
   prerequisite_id: string,
   role: string,
   onChange: (answers: PrerequisiteAnswers | null) => void,
 ): () => void {
-  const normalizedMeetingId = normalizeIdentifier(meeting_id);
-  const normalizedPrerequisiteId = normalizeIdentifier(prerequisite_id);
-
-  ensureRequired(normalizedMeetingId, 'meeting_id');
-  ensureRequired(normalizedPrerequisiteId, 'prerequisite_id');
+  ensureRequired(normalizeIdentifier(meeting_id), 'meeting_id');
+  ensureRequired(normalizeIdentifier(prerequisite_id), 'prerequisite_id');
   ensureRequired(role, 'role');
 
-  const normalizedRole = normalizeRole(role);
+  if (!supabase) return () => {};
 
-  if (!supabase) {
-    console.warn('Supabase désactivé — subscribeToPrerequisiteResponseUpdates inactif');
+  const mid = normalizeIdentifier(meeting_id);
+  const pid = normalizeIdentifier(prerequisite_id);
+  const r   = normalizeRole(role);
+
+  try {
+    const channel = supabase
+      .channel(`prereq-${mid}-${pid}-${r}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'prerequisite_responses',
+          filter: `meeting_id=eq.${mid}`,
+        },
+        (payload) => {
+          const row =
+            (payload.new as Record<string, unknown>) ||
+            (payload.old as Record<string, unknown>) ||
+            {};
+
+          if (
+            String(row.meeting_id    || '').trim()        !== mid ||
+            String(row.prerequisite_id || '').trim()      !== pid ||
+            String(row.role || '').toLowerCase()          !== r
+          ) return;
+
+          if (payload.eventType === 'DELETE') { onChange(null); return; }
+
+          const answers = (payload.new as { answers?: PrerequisiteAnswers } | null)?.answers;
+          onChange(answers ?? null);
+        },
+      )
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[prerequisiteService] Realtime indisponible');
+        }
+      });
+
+    return () => {
+      try { void supabase!.removeChannel(channel); } catch {}
+    };
+  } catch {
     return () => {};
   }
-
-  const channel = supabase
-    .channel(`prerequisite-responses-${normalizedMeetingId}-${normalizedPrerequisiteId}-${normalizedRole}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'prerequisite_responses',
-        filter: `meeting_id=eq.${normalizedMeetingId}`,
-      },
-      (payload) => {
-        const row =
-          (payload.new as Record<string, unknown>) ||
-          (payload.old as Record<string, unknown>) ||
-          {};
-
-        if (
-          String(row.meeting_id || '').trim() !== normalizedMeetingId ||
-          String(row.prerequisite_id || '').trim() !== normalizedPrerequisiteId ||
-          String(row.role || '').toLowerCase() !== normalizedRole
-        ) {
-          return;
-        }
-
-        if (payload.eventType === 'DELETE') {
-          onChange(null);
-          return;
-        }
-
-        const answers = (payload.new as { answers?: PrerequisiteAnswers } | null)?.answers;
-        onChange(answers ?? null);
-      },
-    )
-    .subscribe();
-
-  return () => {
-    void supabase!.removeChannel(channel);
-  };
 }
 
 export const prerequisiteService = {
   getPrerequisiteResponse,
+  loadPrerequisiteResponse,
   savePrerequisiteResponse,
   subscribeToPrerequisiteResponseUpdates,
 };

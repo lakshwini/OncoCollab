@@ -8,7 +8,8 @@
  * ✅ Validation claire avant création
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -21,6 +22,8 @@ import {
   Clock,
   ChevronDown,
   Calendar,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -64,6 +67,116 @@ interface PrerequisiteTemplate {
   label_fr?: string;
   label_en?: string;
   source?: 'document' | 'orthanc' | 'form';
+}
+
+function parseFrenchDate(text: string): string | null {
+  const t = text.toLowerCase().trim();
+  const numFr = t.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  if (numFr) {
+    const d = parseInt(numFr[1]), m = parseInt(numFr[2]);
+    if (d >= 1 && d <= 31 && m >= 1 && m <= 12)
+      return `${numFr[3]}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  const iso = t.match(/\b(20\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2,'0')}-${iso[3].padStart(2,'0')}`;
+
+  const mmap: [string, string][] = [
+    ['janvier','01'],['f\u00e9vrier','02'],['fevrier','02'],['mars','03'],['avril','04'],
+    ['mai','05'],['juin','06'],['juillet','07'],['ao\u00fbt','08'],['aout','08'],
+    ['septembre','09'],['octobre','10'],['novembre','11'],['d\u00e9cembre','12'],['decembre','12'],
+  ];
+  let monthNum: string | null = null, monthPos = -1;
+  for (const [name, num] of mmap) {
+    const pos = t.indexOf(name);
+    if (pos !== -1) { monthNum = num; monthPos = pos; break; }
+  }
+  if (!monthNum) return null;
+
+  const dayWords: [string, number][] = [
+    ['trente et un',31],['vingt et un',21],['vingt-neuf',29],['vingt neuf',29],
+    ['vingt-huit',28],['vingt huit',28],['vingt-sept',27],['vingt sept',27],
+    ['vingt-six',26],['vingt six',26],['vingt-cinq',25],['vingt cinq',25],
+    ['vingt-quatre',24],['vingt quatre',24],['vingt-trois',23],['vingt trois',23],
+    ['vingt-deux',22],['vingt deux',22],['vingt',20],['trente',30],
+    ['dix-neuf',19],['dix neuf',19],['dix-huit',18],['dix huit',18],
+    ['dix-sept',17],['dix sept',17],['seize',16],['quinze',15],['quatorze',14],
+    ['treize',13],['douze',12],['onze',11],['dix',10],
+    ['neuf',9],['huit',8],['sept',7],['six',6],['cinq',5],
+    ['quatre',4],['trois',3],['deux',2],['premier',1],['un',1],
+  ];
+  const beforeMonth = t.slice(0, monthPos);
+  let day: number | null = null;
+  const numDay = beforeMonth.match(/\b(\d{1,2})\s*$/);
+  if (numDay) { const d = parseInt(numDay[1]); if (d >= 1 && d <= 31) day = d; }
+  if (day === null) {
+    for (const [w, v] of dayWords) { if (beforeMonth.includes(w)) { day = v; break; } }
+  }
+  if (day === null) return null;
+
+  let year = new Date().getFullYear();
+  const yearDigit = t.match(/\b(20\d{2})\b/);
+  if (yearDigit) year = parseInt(yearDigit[1]);
+  else {
+    const yw: [string, number][] = [
+      ['deux mille vingt et un',2021],['deux mille vingt-deux',2022],['deux mille vingt deux',2022],
+      ['deux mille vingt-trois',2023],['deux mille vingt trois',2023],
+      ['deux mille vingt-quatre',2024],['deux mille vingt quatre',2024],
+      ['deux mille vingt-cinq',2025],['deux mille vingt cinq',2025],
+      ['deux mille vingt-six',2026],['deux mille vingt six',2026],
+      ['deux mille vingt-sept',2027],['deux mille vingt sept',2027],
+      ['deux mille vingt-huit',2028],['deux mille vingt huit',2028],
+      ['deux mille vingt-neuf',2029],['deux mille vingt neuf',2029],
+      ['deux mille trente',2030],['deux mille vingt',2020],
+    ];
+    for (const [w, y] of yw) { if (t.includes(w)) { year = y; break; } }
+  }
+  return `${year}-${monthNum}-${String(day).padStart(2,'0')}`;
+}
+
+function parseFrenchTime(text: string): string | null {
+  const t = text.toLowerCase().trim();
+  if (t === 'midi' || t.startsWith('midi ')) return '12:00';
+  if (t === 'minuit') return '00:00';
+  const hRe = t.match(/\b(\d{1,2})\s*h\s*(\d{2})?\b/);
+  if (hRe) {
+    const h = parseInt(hRe[1]), m = hRe[2] ? parseInt(hRe[2]) : 0;
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59)
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  const cRe = t.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (cRe) {
+    const h = parseInt(cRe[1]), m = parseInt(cRe[2]);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59)
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  const numH: Record<string,number> = {
+    'z\u00e9ro':0,'zero':0,'une':1,'un':1,'deux':2,'trois':3,'quatre':4,'cinq':5,
+    'six':6,'sept':7,'huit':8,'neuf':9,'dix':10,'onze':11,'douze':12,
+    'treize':13,'quatorze':14,'quinze':15,'seize':16,
+    'dix-sept':17,'dix sept':17,'dix-huit':18,'dix huit':18,
+    'dix-neuf':19,'dix neuf':19,'vingt':20,'vingt et un':21,
+    'vingt-deux':22,'vingt deux':22,'vingt-trois':23,'vingt trois':23,
+  };
+  const numM: Record<string,number> = {
+    ...numH,'trente':30,'quarante':40,'cinquante':50,
+    'quarante-cinq':45,'quarante cinq':45,
+  };
+  const hm = t.match(/(.+?)\s+heures?\s*(et\s+demie|et\s+quart|moins\s+le\s+quart|[\w\-\s]+)?/);
+  if (hm) {
+    const hs = hm[1].trim(), ms = (hm[2] || '').trim();
+    let h: number | null = /^\d+$/.test(hs) ? parseInt(hs) : null;
+    if (h === null) for (const [w,v] of Object.entries(numH).sort((a,b)=>b[0].length-a[0].length)) { if (hs===w){h=v;break;} }
+    if (h === null || h < 0 || h > 23) return null;
+    let m = 0;
+    if (ms === 'et demie') m = 30;
+    else if (ms === 'et quart') m = 15;
+    else if (ms === 'moins le quart') { h = (h - 1 + 24) % 24; m = 45; }
+    else if (/^\d+$/.test(ms)) m = parseInt(ms);
+    else for (const [w,v] of Object.entries(numM).sort((a,b)=>b[0].length-a[0].length)) { if (ms===w){m=v;break;} }
+    if (m < 0 || m > 59) m = 0;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  return null;
 }
 
 const normalizeSpecialityKey = (value: string) =>
@@ -203,7 +316,26 @@ export function RCPFormUnified({
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ========== VOICE INPUT — hook SpeechCore partagé ==========
+  const { voiceFieldKey, isVoiceRecording, startVoice, startVoiceSingle, stopVoice } = useVoiceInput();
+  const [voiceParseErrors, setVoiceParseErrors] = useState<Record<string,string>>({});
 
+  const handleStartVoiceDateTime = useCallback((fieldKey: 'date' | 'startTime' | 'endTime') => {
+    setVoiceParseErrors(prev => ({ ...prev, [fieldKey]: '' }));
+    startVoiceSingle(fieldKey, (transcript) => {
+      const parsed = fieldKey === 'date'
+        ? parseFrenchDate(transcript)
+        : parseFrenchTime(transcript);
+      if (parsed) {
+        if (fieldKey === 'date') setStartDate(parsed);
+        else if (fieldKey === 'startTime') setStartTime(parsed);
+        else setEndTime(parsed);
+        setVoiceParseErrors(prev => ({ ...prev, [fieldKey]: '' }));
+      } else {
+        setVoiceParseErrors(prev => ({ ...prev, [fieldKey]: `Non reconnu : "${transcript}" — dites ex: "31 mai 2026" ou "14h30"` }));
+      }
+    });
+  }, [startVoiceSingle]);
 
   // ========== LIFECYCLE ==========
   useEffect(() => {
@@ -580,17 +712,28 @@ export function RCPFormUnified({
             {t.meetingTitle}
             <span className="text-red-600 ml-1">*</span>
           </label>
-          <input
-            type="text"
-            placeholder={t.meetingTitlePlaceholder}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className={`w-full px-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
-              !title && missingFields.includes(t.meetingTitle)
-                ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
-                : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
-            }`}
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder={t.meetingTitlePlaceholder}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={`w-full px-4 py-3 pr-12 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
+                !title && missingFields.includes(t.meetingTitle)
+                  ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                  : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => isVoiceRecording && voiceFieldKey === 'title' ? stopVoice() : startVoice('title', title, setTitle)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md transition hover:opacity-80"
+              style={{ backgroundColor: isVoiceRecording && voiceFieldKey === 'title' ? '#ef4444' : '#3b82f6', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+              title="Dictée vocale"
+            >
+              {isVoiceRecording && voiceFieldKey === 'title' ? <MicOff size={14} /> : <Mic size={14} />}
+            </button>
+          </div>
         </div>
 
         {/* DESCRIPTION */}
@@ -598,13 +741,24 @@ export function RCPFormUnified({
           <label className="block text-sm font-bold text-gray-800 mb-2">
             {t.description}
           </label>
-          <textarea
-            placeholder={t.descriptionPlaceholder}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-none transition"
-          />
+          <div className="relative">
+            <textarea
+              placeholder={t.descriptionPlaceholder}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="w-full px-4 py-3 pr-12 border-2 border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-none transition"
+            />
+            <button
+              type="button"
+              onClick={() => isVoiceRecording && voiceFieldKey === 'description' ? stopVoice() : startVoice('description', description, setDescription)}
+              className="absolute right-2 top-3 p-2 rounded-md transition hover:opacity-80"
+              style={{ backgroundColor: isVoiceRecording && voiceFieldKey === 'description' ? '#ef4444' : '#3b82f6', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+              title="Dictée vocale"
+            >
+              {isVoiceRecording && voiceFieldKey === 'description' ? <MicOff size={14} /> : <Mic size={14} />}
+            </button>
+          </div>
         </div>
 
         {/* DATE & TIME */}
@@ -617,61 +771,97 @@ export function RCPFormUnified({
             {/* Date */}
             <div className="md:col-span-1">
               <label className="block text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">{t.date}</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
-                    !startDate && missingFields.includes(t.date)
-                      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
-                      : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
-                  }`}
-                />
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
+                      !startDate && missingFields.includes(t.date)
+                        ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                    }`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => isVoiceRecording && voiceFieldKey === 'date' ? stopVoice() : handleStartVoiceDateTime('date')}
+                  className="flex-shrink-0 p-2.5 rounded-lg transition hover:opacity-80"
+                  style={{ backgroundColor: isVoiceRecording && voiceFieldKey === 'date' ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  title="Dictée vocale — ex: 31 mai 2026"
+                >
+                  {isVoiceRecording && voiceFieldKey === 'date' ? <MicOff size={14} /> : <Mic size={14} />}
+                </button>
               </div>
+              {voiceParseErrors.date && (
+                <p className="text-xs text-red-500 mt-1">{voiceParseErrors.date}</p>
+              )}
             </div>
 
             {/* Start Time */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">{t.startTime} *</label>
-              <div className="relative">
-                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => {
-                    console.log('Start Time changed to:', e.target.value);
-                    setStartTime(e.target.value);
-                  }}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
-                    !startTime && missingFields.includes(t.startTime)
-                      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
-                      : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
-                  }`}
-                />
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1">
+                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
+                      !startTime && missingFields.includes(t.startTime)
+                        ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                    }`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => isVoiceRecording && voiceFieldKey === 'startTime' ? stopVoice() : handleStartVoiceDateTime('startTime')}
+                  className="flex-shrink-0 p-2.5 rounded-lg transition hover:opacity-80"
+                  style={{ backgroundColor: isVoiceRecording && voiceFieldKey === 'startTime' ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  title="Dictée vocale — ex: 14h30 ou quatorze heures trente"
+                >
+                  {isVoiceRecording && voiceFieldKey === 'startTime' ? <MicOff size={14} /> : <Mic size={14} />}
+                </button>
               </div>
+              {voiceParseErrors.startTime && (
+                <p className="text-xs text-red-500 mt-1">{voiceParseErrors.startTime}</p>
+              )}
             </div>
 
             {/* End Time */}
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-2">{t.endTime} *</label>
-              <div className="relative">
-                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => {
-                    console.log('End Time changed to:', e.target.value);
-                    setEndTime(e.target.value);
-                  }}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
-                    !endTime && missingFields.includes(t.endTime)
-                      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
-                      : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
-                  }`}
-                />
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1">
+                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400 pointer-events-none" />
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-sm focus:outline-none transition font-medium ${
+                      !endTime && missingFields.includes(t.endTime)
+                        ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                    }`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => isVoiceRecording && voiceFieldKey === 'endTime' ? stopVoice() : handleStartVoiceDateTime('endTime')}
+                  className="flex-shrink-0 p-2.5 rounded-lg transition hover:opacity-80"
+                  style={{ backgroundColor: isVoiceRecording && voiceFieldKey === 'endTime' ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  title="Dictée vocale — ex: 15h00 ou quinze heures"
+                >
+                  {isVoiceRecording && voiceFieldKey === 'endTime' ? <MicOff size={14} /> : <Mic size={14} />}
+                </button>
               </div>
+              {voiceParseErrors.endTime && (
+                <p className="text-xs text-red-500 mt-1">{voiceParseErrors.endTime}</p>
+              )}
             </div>
           </div>
         </div>
@@ -935,24 +1125,47 @@ export function RCPFormUnified({
                       </div>
 
                       <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={prerequisiteInputs[participant.doctorId] || ''}
-                          placeholder={t.customPrerequisite}
-                          onChange={(event) =>
-                            setPrerequisiteInputs((previous) => ({
-                              ...previous,
-                              [participant.doctorId]: event.target.value,
-                            }))
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              handleAddPrerequisiteToParticipant(participant.doctorId);
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={prerequisiteInputs[participant.doctorId] || ''}
+                            placeholder={t.customPrerequisite}
+                            onChange={(event) =>
+                              setPrerequisiteInputs((previous) => ({
+                                ...previous,
+                                [participant.doctorId]: event.target.value,
+                              }))
                             }
-                          }}
-                          className="flex-1 px-3 py-1.5 border-2 border-gray-300 rounded-lg text-xs focus:outline-none focus:border-blue-500"
-                        />
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                handleAddPrerequisiteToParticipant(participant.doctorId);
+                              }
+                            }}
+                            className="w-full px-3 py-1.5 pr-9 border-2 border-gray-300 rounded-lg text-xs focus:outline-none focus:border-blue-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const key = `prereq_${participant.doctorId}`;
+                              isVoiceRecording && voiceFieldKey === key
+                                ? stopVoice()
+                                : startVoice(key, prerequisiteInputs[participant.doctorId] || '', (text) => setPrerequisiteInputs(prev => ({ ...prev, [participant.doctorId]: text })));
+                            }}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded transition hover:opacity-80"
+                            style={{
+                              backgroundColor: isVoiceRecording && voiceFieldKey === `prereq_${participant.doctorId}` ? '#ef4444' : '#3b82f6',
+                              color: '#ffffff',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                            title="Dictée vocale"
+                          >
+                            {isVoiceRecording && voiceFieldKey === `prereq_${participant.doctorId}`
+                              ? <MicOff size={11} />
+                              : <Mic size={11} />}
+                          </button>
+                        </div>
                         <Button
                           type="button"
                           variant="outline"

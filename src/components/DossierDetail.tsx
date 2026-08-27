@@ -20,6 +20,7 @@ import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Textarea } from './ui/textarea';
+import PathoCollabPatientImageViewer from "./PathoCollabPatientImageViewer";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { ImageAnnotator } from './ImageAnnotator';
+import { ImagerieViewer } from './ImagerieViewer';
 import { createApiUrl, createAuthHeaders } from '../config/api.config';
 
 interface DossierDetailProps {
@@ -294,21 +296,14 @@ export function DossierDetail({ dossierId, onBack }: DossierDetailProps) {
         <TabsContent value="imagerie" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Images DICOM</CardTitle>
-                <Button variant="outline">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Importer DICOM
-                </Button>
-              </div>
+              <CardTitle>Imagerie médicale (PathoCollab)</CardTitle>
             </CardHeader>
             <CardContent>
-              {/* ✅ Interface VIDE si pas d'images */}
-              <div className="text-center py-12">
-                <ImageIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">Aucune image disponible pour le moment</p>
-                <p className="text-sm text-gray-400 mt-2">Les images DICOM seront affichées ici une fois téléchargées</p>
-              </div>
+              <PathoCollabPatientImageViewer
+          patientId={dossierData.patientNumber }
+          imagesApiBaseUrl="http://localhost:18004"
+          height="650px"
+        />
             </CardContent>
           </Card>
         </TabsContent>

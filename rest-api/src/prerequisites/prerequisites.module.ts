@@ -4,6 +4,7 @@ import { MongoClient, Db } from 'mongodb';
 import { PrerequisitesController } from './prerequisites.controller';
 import { PrerequisitesService } from './prerequisites.service';
 import { PrerequisiteGeneratorService } from './prerequisite-generator.service';
+import { WorkflowLinkService } from './workflow-link.service';
 import { JwtConfigModule } from '../auth/jwt-config.module';
 import { VideoModule } from '../video/video.module';
 
@@ -41,7 +42,7 @@ const MongoDbProvider = {
     forwardRef(() => VideoModule),
   ],
   controllers: [PrerequisitesController],
-  providers: [MongoDbProvider, PrerequisitesService, PrerequisiteGeneratorService],
-  exports: [PrerequisitesService, PrerequisiteGeneratorService],
+  providers: [MongoDbProvider, PrerequisitesService, PrerequisiteGeneratorService, WorkflowLinkService],
+  exports: [PrerequisitesService, PrerequisiteGeneratorService, WorkflowLinkService],
 })
 export class PrerequisitesModule {}

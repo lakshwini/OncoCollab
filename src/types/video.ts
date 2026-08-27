@@ -13,6 +13,9 @@ export interface ParticipantPayload {
 }
 
 export interface ServerToClientEvents {
+  // Configuration ICE (STUN/TURN) calculée côté backend à partir de .env.backend
+  "ice-config": (config: RTCConfiguration) => void;
+
   // Envoie l'ID de l'utilisateur qui vient de se connecter
   "user-joined": (participant: ParticipantPayload) => void;
 

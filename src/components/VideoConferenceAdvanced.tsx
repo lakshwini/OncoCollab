@@ -3,7 +3,11 @@ import { User } from '../App';
 import { useLanguage } from '../i18n';
 import { useWebRTC } from '../contexts/WebRTCContext';
 import { useVideo } from '../contexts/VideoContext';
+import { useTranscription } from '../contexts/TranscriptionContext';
 import { API_CONFIG, createApiUrl, createAuthHeaders } from '../config/api.config';
+import { ImagerieViewer } from './ImagerieViewer';
+import { getOrCreateImagerieRoom } from '../services/imagerieRoomService';
+import { fetchMeetingById, updateMeetingOncovisionRoom } from '../services/meetings.service';
 import {
   X,
   Mic,
@@ -18,9 +22,7 @@ import {
   FileText,
   FolderOpen,
   Image as ImageIcon,
-  Maximize2,
-  ZoomIn,
-  ZoomOut,
+ 
   Download,
   MoreVertical,
   Copy,
@@ -46,6 +48,7 @@ import {
 import { PrerequisitesTab } from './PrerequisitesTab';
 import { PrerequisiteModulePlaceholder } from './PrerequisiteModulePlaceholder';
 import { ReportRecorder } from './ReportRecorder';
+import { SpeechBlocksPanel } from './SpeechBlocksPanel';
 import {
   fetchMeetingPrerequisiteDetails,
   type PrerequisiteDetailsResponse,
@@ -158,6 +161,8 @@ export function VideoConferenceAdvanced({
     mySocketId,
     lastPrerequisiteUpdate,
     lastReportReady,
+    lastFloorEvent,
+    lastLiveText,
   } = useWebRTC();
   const {
     stream: localStream,
@@ -167,6 +172,7 @@ export function VideoConferenceAdvanced({
     setCameraOn,
     replaceVideoTrack,
   } = useVideo();
+  const transcription = useTranscription();
 
   const currentDoctorName = currentUser?.name || 'Docteur';
   const currentDoctorRole = currentUser?.role || 'medecin';
@@ -185,7 +191,7 @@ export function VideoConferenceAdvanced({
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [leftPanelTab, setLeftPanelTab] = useState<'patient' | 'documents' | 'imagery' | 'prerequisites'>('patient');
-  const [rightPanelTab, setRightPanelTab] = useState<'chat' | 'participants'>('chat');
+  const [rightPanelTab, setRightPanelTab] = useState<'chat' | 'participants' | 'transcription'>('chat');
   const [chatMessage, setChatMessage] = useState('');
   const [viewMode, setViewMode] = useState<'video' | 'imagery' | 'prerequisites'>('video');
 
@@ -196,6 +202,7 @@ export function VideoConferenceAdvanced({
   const [activePrereqItem, setActivePrereqItem] = useState<PrerequisiteItemDetail | null>(null);
   const [activePrereqDoctor, setActivePrereqDoctor] = useState<ParticipantDetail | null>(null);
   const [selectedImagery, setSelectedImagery] = useState<string | null>(null);
+  const [imagerieRoomId, setImagerieRoomId] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [annotationTool, setAnnotationTool] = useState<'cursor' | 'pen' | 'text' | 'rectangle' | 'circle'>('cursor');
   const [searchDoc, setSearchDoc] = useState('');
@@ -345,6 +352,52 @@ export function VideoConferenceAdvanced({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ROOM_ID, authToken]);
 
+  // Transmet le meetingId au contexte de transcription pour que saveBlock fonctionne
+  useEffect(() => {
+    if (roomId) transcription.setMeetingId(roomId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
+
+  // ── Prise de parole — état visible pour TOUS les participants ──────────
+  const [floorStatus, setFloorStatus] = useState<{ speakerName: string; socketId: string } | null>(null);
+  const [floorModal,  setFloorModal]  = useState<{ show: boolean; speakerName: string }>({ show: false, speakerName: '' });
+  const startSpeechRef  = useRef<(() => void) | null>(null);
+  const floorSpeakerRef = useRef('');
+
+  useEffect(() => {
+    if (!lastFloorEvent) return;
+
+    if (lastFloorEvent.type === 'given') {
+      const name = lastFloorEvent.holderName || 'Intervenant';
+
+      // 1. Indicateur visible pour TOUS (même ceux qui n'ont pas le panel ouvert)
+      setFloorStatus({ speakerName: name, socketId: lastFloorEvent.holderId });
+
+      // 2. Ouvrir le panel transcription pour TOUS (pour voir le temps réel)
+      setRightPanelOpen(true);
+      setRightPanelTab('transcription');
+
+      // 3. Modal "Démarrer" uniquement pour le destinataire (pas auto-activation)
+      if (lastFloorEvent.holderId === mySocketId) {
+        const isSelfActivation = lastFloorEvent.giverId === mySocketId;
+        if (!isSelfActivation) {
+          floorSpeakerRef.current = name;
+          setFloorModal({ show: true, speakerName: name });
+        }
+      }
+    } else if (lastFloorEvent.type === 'revoked') {
+      setFloorStatus(null);
+      setFloorModal({ show: false, speakerName: '' });
+      floorSpeakerRef.current = '';
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastFloorEvent, mySocketId]);
+
+  // Callback stable (useCallback) passé à SpeechBlocksPanel
+  const handleRegisterStartCallback = useCallback((fn: () => void) => {
+    startSpeechRef.current = fn;
+  }, []);
+
   // Re-attach stream to BOTH video refs whenever stream/state changes.
   // Aussi appeler .play() explicitement après toggle ON pour forcer le rendu
   useEffect(() => {
@@ -407,6 +460,45 @@ export function VideoConferenceAdvanced({
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leftPanelTab, roomId]);
+
+  // ── Imagerie : rejoindre directement la room d'annotation OncoVision liée à cette réunion ──
+  useEffect(() => {
+    if (viewMode !== 'imagery') return;
+    if (imagerieRoomId !== null) return; // déjà résolu
+
+    let cancelled = false;
+    const meetingId = roomId || ROOM_ID;
+
+    fetchMeetingById(meetingId, authToken ?? null)
+      .then((meeting) => {
+        if (cancelled) return;
+
+        // Une room OncoVision est déjà liée à cette réunion : on la réutilise telle quelle
+        if (meeting.oncovisionRoomId) {
+          setImagerieRoomId(meeting.oncovisionRoomId);
+          return;
+        }
+
+        // Aucune room liée : on crée (ou récupère) une room OncoVision puis on l'enregistre
+        getOrCreateImagerieRoom(meetingId).then((id) => {
+          if (cancelled || !id) return;
+          setImagerieRoomId(id);
+          updateMeetingOncovisionRoom(meetingId, id, authToken ?? null).catch((err) => {
+            console.error('[VideoConf] ❌ Erreur enregistrement room OncoVision:', err);
+          });
+        });
+      })
+      .catch((err) => {
+        console.error('[VideoConf] ❌ Erreur récupération réunion (OncoVision):', err);
+        // Comportement de repli identique à l'existant en cas d'échec de lecture de la réunion
+        getOrCreateImagerieRoom(meetingId).then((id) => {
+          if (!cancelled && id) setImagerieRoomId(id);
+        });
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, roomId]);
 
   // ── Rafraîchissement automatique quand un prérequis est mis à jour en temps réel ──
   useEffect(() => {
@@ -582,7 +674,48 @@ export function VideoConferenceAdvanced({
     setShowReportRecorder(true);
   }, []);
 
+  // ── Transcription panel toggle ──────────────────────────
+  const handleToggleTranscription = useCallback(() => {
+    if (rightPanelOpen && rightPanelTab === 'transcription') {
+      setRightPanelOpen(false);
+    } else {
+      setRightPanelOpen(true);
+      setRightPanelTab('transcription');
+    }
+  }, [rightPanelOpen, rightPanelTab]);
+
+
   const totalParticipants = Math.max(1, participants.size || 1);
+
+  // ── Get list of all participants (for speaker selection) ──────────────────────
+  const allSpeakers = useMemo(() => {
+    const speakers: Array<{ id: string; name: string; isCurrentUser: boolean; doctorId?: string }> = [];
+
+    // Add current user
+    if (currentUser) {
+      speakers.push({
+        id: mySocketId || 'local',
+        name: currentUser.name,
+        isCurrentUser: true,
+        doctorId: currentUser.id,
+      });
+    }
+
+    // Add other participants
+    Array.from(participants.entries()).forEach(([id, participant]) => {
+      if (id !== mySocketId) {
+        speakers.push({
+          id,
+          name: participant?.name || `Participant ${id.slice(0, 6)}`,
+          isCurrentUser: false,
+          doctorId: participant?.doctorId,
+        });
+      }
+    });
+
+    return speakers;
+  }, [participants, mySocketId, currentUser]);
+
 
   // Translations
   const txt = {
@@ -989,106 +1122,27 @@ export function VideoConferenceAdvanced({
               </div>
             )
           ) : viewMode === 'imagery' ? (
-            /* IMAGERY VIEW */
+            /* IMAGERY VIEW — OncoVision (visualisation + annotation collaborative) */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              {/* Imagery toolbar */}
               <div style={{
-                height: '40px', backgroundColor: C.bgHeader,
-                borderBottom: `1px solid ${C.border}`,
-                padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                flexShrink: 0,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {[
-                    { id: 'cursor', icon: MousePointer },
-                    { id: 'pen', icon: Pencil },
-                    { id: 'text', icon: Type },
-                    { id: 'rectangle', icon: Square },
-                    { id: 'circle', icon: Circle },
-                  ].map((tool) => (
-                    <button
-                      key={tool.id}
-                      onClick={() => setAnnotationTool(tool.id as any)}
-                      style={{
-                        width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: annotationTool === tool.id ? C.blue : 'transparent',
-                        color: annotationTool === tool.id ? C.textWhite : C.textGray,
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      <tool.icon size={14} />
-                    </button>
-                  ))}
-                  <div style={{ width: '1px', height: '20px', backgroundColor: C.borderLight, margin: '0 4px' }} />
-                  <button style={{
-                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <RotateCcw size={14} />
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button onClick={() => setZoomLevel(Math.max(25, zoomLevel - 25))} style={{
-                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <ZoomOut size={14} />
-                  </button>
-                  <span style={{ color: C.textWhite, fontSize: '12px', width: '48px', textAlign: 'center' }}>{zoomLevel}%</span>
-                  <button onClick={() => setZoomLevel(Math.min(400, zoomLevel + 25))} style={{
-                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <ZoomIn size={14} />
-                  </button>
-                  <button style={{
-                    width: '28px', height: '28px', border: 'none', borderRadius: '4px',
-                    backgroundColor: 'transparent', color: C.textGray, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Maximize2 size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Imagery viewer */}
-              <div style={{
-                flex: 1, backgroundColor: '#000', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
+                flex: 1, backgroundColor: '#000',
                 position: 'relative', overflow: 'hidden',
               }}>
-                {selectedImagery ? (
-                  <div style={{ transform: `scale(${zoomLevel / 100})`, transition: 'transform 0.2s' }}>
-                    <div style={{ width: '500px', height: '500px', position: 'relative' }}>
-                      <div style={{
-                        position: 'absolute', inset: 0, borderRadius: '50%',
-                        border: `4px solid rgba(34,211,238,0.4)`,
-                        background: 'linear-gradient(135deg, #0f172a, rgba(30,64,175,0.2), #0f172a)',
-                      }}>
-                        <div style={{
-                          position: 'absolute', top: '50%', left: '50%',
-                          transform: 'translate(-50%, -50%)', width: '75%', height: '75%',
-                        }}>
-                          <svg viewBox="0 0 200 200" style={{ width: '100%', height: '100%' }}>
-                            <ellipse cx="100" cy="100" rx="70" ry="80" fill="none" stroke="rgba(96,165,250,0.3)" strokeWidth="2" />
-                            <path d="M 100 30 Q 140 50 140 100 Q 140 150 100 170 Q 60 150 60 100 Q 60 50 100 30" fill="rgba(59,130,246,0.2)" stroke="rgba(96,165,250,0.5)" strokeWidth="1.5" />
-                            <circle cx="120" cy="90" r="20" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3" />
-                            <line x1="140" y1="80" x2="180" y2="50" stroke="#22d3ee" strokeWidth="1" />
-                            <text x="182" y="48" fill="#22d3ee" fontSize="10">{txt.suspectZone}</text>
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ textAlign: 'center' }}>
-                    <ImageIcon size={64} color={C.textGrayDarker} style={{ margin: '0 auto 12px' }} />
-                    <p style={{ color: C.textGrayDark, margin: 0 }}>{txt.selectImagery}</p>
+                <ImagerieViewer
+                  height="100%"
+                  roomId={imagerieRoomId ?? undefined}
+                  authorName={currentDoctorName}
+                />
+
+                {/* Clé d'accès à la room d'annotation OncoVision */}
+                {imagerieRoomId && (
+                  <div style={{
+                    position: 'absolute', top: '12px', left: '12px',
+                    backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: '6px',
+                    padding: '4px 10px', fontSize: '12px', color: 'white',
+                    zIndex: 5,
+                  }}>
+                    Clé d'accès imagerie : {imagerieRoomId}
                   </div>
                 )}
 
@@ -1130,6 +1184,26 @@ export function VideoConferenceAdvanced({
           ) : (
             /* VIDEO VIEW — active speaker large + small tiles strip */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px', gap: '8px', overflow: 'hidden' }}>
+
+              {/* ── Indicateur temps réel : qui a la parole ── visible pour TOUS ── */}
+              {floorStatus && (
+                <div style={{
+                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '8px 14px', borderRadius: '10px',
+                  backgroundColor: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)',
+                }}>
+                  <div style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: C.purple, animation: 'pulse 1s infinite', flexShrink: 0 }} />
+                  <span style={{ color: C.purple, fontWeight: 700, fontSize: '13px' }}>
+                    🎤 {floorStatus.speakerName} a la parole
+                  </span>
+                  {lastLiveText?.text && (
+                    <span style={{ color: C.textGray, fontSize: '12px', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      — {lastLiveText.text}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Main stage: active speaker or self */}
               <div style={{
                 flex: 1, backgroundColor: C.bgCard, borderRadius: '12px', overflow: 'hidden',
@@ -1367,44 +1441,63 @@ export function VideoConferenceAdvanced({
           )}
         </div>
 
-        {/* ===== RIGHT PANEL ===== */}
-        {rightPanelOpen && (
-          <div style={{
-            width: '280px', backgroundColor: C.bgPanel,
-            borderLeft: `1px solid ${C.border}`,
-            display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',
-          }}>
+        {/* ===== RIGHT PANEL =====
+            Rendu TOUJOURS (même panel fermé) via width:0 pour garder SpeechBlocksPanel
+            monté et traiter les événements WebSocket en temps réel.
+        */}
+        <div style={{
+          width: rightPanelOpen ? (rightPanelTab === 'transcription' ? '360px' : '280px') : '0',
+          minWidth: 0,
+          backgroundColor: C.bgPanel,
+          borderLeft: rightPanelOpen ? `1px solid ${C.border}` : 'none',
+          display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',
+          transition: 'width 0.2s',
+        }}>
+          {/* Inner wrapper with fixed width to prevent content compression */}
+          <div style={{ width: '360px', display: 'flex', flexDirection: 'column', height: '100%', flex: 1, minHeight: 0 }}>
             {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
               <button
                 onClick={() => setRightPanelTab('chat')}
                 style={{
-                  flex: 1, padding: '10px', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  fontSize: '13px', backgroundColor: 'transparent',
+                  flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  fontSize: '11px', backgroundColor: 'transparent',
                   color: rightPanelTab === 'chat' ? C.blueLight : C.textGray,
                   borderBottom: rightPanelTab === 'chat' ? `2px solid ${C.blueLight}` : '2px solid transparent',
                 }}
               >
-                <MessageSquare size={16} /> Chat
+                <MessageSquare size={13} /> Chat
               </button>
               <button
                 onClick={() => setRightPanelTab('participants')}
                 style={{
-                  flex: 1, padding: '10px', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  fontSize: '13px', backgroundColor: 'transparent',
+                  flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  fontSize: '11px', backgroundColor: 'transparent',
                   color: rightPanelTab === 'participants' ? C.blueLight : C.textGray,
                   borderBottom: rightPanelTab === 'participants' ? `2px solid ${C.blueLight}` : '2px solid transparent',
                 }}
               >
-                <Users size={16} /> ({totalParticipants})
+                <Users size={13} /> ({totalParticipants})
+              </button>
+              <button
+                onClick={() => setRightPanelTab('transcription')}
+                style={{
+                  flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  fontSize: '11px', backgroundColor: 'transparent',
+                  color: rightPanelTab === 'transcription' ? C.blueLight : C.textGray,
+                  borderBottom: rightPanelTab === 'transcription' ? `2px solid ${C.blueLight}` : '2px solid transparent',
+                }}
+              >
+                <Mic size={13} /> Parole
               </button>
             </div>
 
-            {rightPanelTab === 'chat' ? (
+            {/* ── CHAT ── */}
+            {rightPanelTab === 'chat' && (
               <>
-                {/* Chat messages */}
                 <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
                   {chatMessages.length === 0 ? (
                     <div style={{ textAlign: 'center', paddingTop: '32px' }}>
@@ -1414,19 +1507,13 @@ export function VideoConferenceAdvanced({
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {chatMessages.map((msg) => (
-                        <div key={msg.id} style={{
-                          display: 'flex', justifyContent: msg.user === 'Vous' ? 'flex-end' : 'flex-start',
-                        }}>
+                        <div key={msg.id} style={{ display: 'flex', justifyContent: msg.user === 'Vous' ? 'flex-end' : 'flex-start' }}>
                           <div style={{ maxWidth: '85%' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                               <span style={{ fontSize: '11px', color: C.textGrayDark }}>{msg.user}</span>
                               <span style={{ fontSize: '11px', color: C.textGrayDarker }}>{msg.time}</span>
                             </div>
-                            <div style={{
-                              borderRadius: '16px', padding: '8px 12px',
-                              backgroundColor: msg.user === 'Vous' ? C.blue : C.bgControl,
-                              color: 'white', fontSize: '13px',
-                            }}>
+                            <div style={{ borderRadius: '16px', padding: '8px 12px', backgroundColor: msg.user === 'Vous' ? C.blue : C.bgControl, color: 'white', fontSize: '13px' }}>
                               {msg.message}
                             </div>
                           </div>
@@ -1435,8 +1522,6 @@ export function VideoConferenceAdvanced({
                     </div>
                   )}
                 </div>
-
-                {/* Chat input */}
                 <div style={{ padding: '12px', borderTop: `1px solid ${C.border}` }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input
@@ -1444,40 +1529,22 @@ export function VideoConferenceAdvanced({
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                      style={{
-                        flex: 1, height: '36px', padding: '0 12px',
-                        backgroundColor: C.bgCard, border: 'none', borderRadius: '8px',
-                        color: C.textWhite, fontSize: '13px', outline: 'none',
-                      }}
+                      style={{ flex: 1, height: '36px', padding: '0 12px', backgroundColor: C.bgCard, border: 'none', borderRadius: '8px', color: C.textWhite, fontSize: '13px', outline: 'none' }}
                     />
-                    <button
-                      onClick={handleSendMessage}
-                      style={{
-                        width: '36px', height: '36px', border: 'none', borderRadius: '8px',
-                        backgroundColor: C.blue, color: 'white', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
+                    <button onClick={handleSendMessage} style={{ width: '36px', height: '36px', border: 'none', borderRadius: '8px', backgroundColor: C.blue, color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Send size={16} />
                     </button>
                   </div>
                 </div>
               </>
-            ) : (
-              /* Participants list */
+            )}
+
+            {/* ── PARTICIPANTS ── */}
+            {rightPanelTab === 'participants' && (
               <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {/* Me */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    padding: '8px', backgroundColor: C.bgCard, borderRadius: '10px',
-                  }}>
-                    <div style={{
-                      width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.blue,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0,
-                    }}>{currentDoctorInitials}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', backgroundColor: C.bgCard, borderRadius: '10px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>{currentDoctorInitials}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ color: C.textWhite, fontSize: '13px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentDoctorName}</p>
                       <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{currentDoctorRole}</p>
@@ -1487,21 +1554,12 @@ export function VideoConferenceAdvanced({
                       {isVideoEnabled ? <Video size={14} color={C.green} /> : <VideoOff size={14} color={C.textGrayDark} />}
                     </div>
                   </div>
-
-                  {/* Remote participants */}
                   {remoteParticipants.map(([id, participant]) => (
-                    <div key={id} style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '8px', borderRadius: '10px', transition: 'background-color 0.2s',
-                    }}
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', borderRadius: '10px', transition: 'background-color 0.2s' }}
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = C.bgCard; }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                     >
-                      <div style={{
-                        width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.purple,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0,
-                      }}>{participant.firstName?.[0] || 'P'}{participant.lastName?.[0] || ''}</div>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: C.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>{participant.firstName?.[0] || 'P'}{participant.lastName?.[0] || ''}</div>
                       <div style={{ flex: 1 }}>
                         <p style={{ color: C.textWhite, fontSize: '13px', margin: 0 }}>{participant.name || `Participant ${id.slice(0, 6)}`}</p>
                         <p style={{ color: C.textGrayDark, fontSize: '11px', margin: '2px 0 0' }}>{txt.connected}</p>
@@ -1512,15 +1570,25 @@ export function VideoConferenceAdvanced({
                       </div>
                     </div>
                   ))}
-
                   {remoteParticipants.length === 0 && (
-                    <p style={{ color: C.textGrayDark, fontSize: '13px', textAlign: 'center', padding: '16px 0' }}>
-                      {txt.noOtherParticipant}
-                    </p>
+                    <p style={{ color: C.textGrayDark, fontSize: '13px', textAlign: 'center', padding: '16px 0' }}>{txt.noOtherParticipant}</p>
                   )}
                 </div>
               </div>
             )}
+
+            {/* ── TRANSCRIPTION (PAROLE) ──
+                Rendu TOUJOURS (display:none quand inactif) pour que SpeechBlocksPanel
+                soit déjà monté et son callback enregistré avant que la popup apparaisse.
+            ── */}
+            <div style={{ flex: 1, overflow: 'hidden', display: rightPanelTab === 'transcription' ? 'flex' : 'none', flexDirection: 'column', minHeight: 0 }}>
+              <SpeechBlocksPanel
+                meetingId={roomId || ROOM_ID}
+                speakers={allSpeakers}
+                onGenerateReport={handleOpenReportRecorder}
+                onRegisterStartCallback={handleRegisterStartCallback}
+              />
+            </div>
 
             {/* Hide button */}
             <button
@@ -1528,7 +1596,7 @@ export function VideoConferenceAdvanced({
               style={{
                 margin: '8px', padding: '6px 12px', border: 'none', borderRadius: '6px',
                 backgroundColor: 'transparent', color: C.textGrayDark, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px',
+                display: rightPanelOpen ? 'flex' : 'none', alignItems: 'center', gap: '6px', fontSize: '12px',
                 transition: 'color 0.2s',
               }}
               onMouseEnter={e => { e.currentTarget.style.color = C.textWhite; }}
@@ -1537,8 +1605,8 @@ export function VideoConferenceAdvanced({
               <PanelRightClose size={16} />
               {txt.hide}
             </button>
-          </div>
-        )}
+          </div>{/* end inner wrapper */}
+        </div>{/* end right panel */}
 
         {/* Right panel show button */}
         {!rightPanelOpen && (
@@ -1586,12 +1654,22 @@ export function VideoConferenceAdvanced({
             <Share2 size={20} />
           </ControlButton>
 
-          {/* Generate Report - Mic Recording */}
+          {/* Prise de parole — ouvre l'onglet Transcription */}
           <ControlButton
-            onClick={handleOpenReportRecorder}
-            label="Générer rapport"
+            onClick={handleToggleTranscription}
+            active={rightPanelOpen && rightPanelTab === 'transcription'}
+            label="Prise de parole"
           >
-            <FileText size={20} />
+            <ClipboardList size={20} />
+          </ControlButton>
+
+          {/* Annotation collaborative — bascule vers la vue Imagerie/OncoVision */}
+          <ControlButton
+            onClick={() => setViewMode('imagery')}
+            active={viewMode === 'imagery'}
+            label="Annotation collaborative"
+          >
+            <Pencil size={20} />
           </ControlButton>
 
           <div style={{ width: '1px', height: '24px', backgroundColor: C.borderLight, margin: '0 4px' }} />
@@ -1660,6 +1738,66 @@ export function VideoConferenceAdvanced({
             setLeftPanelTab('documents');
           }}
         />
+      )}
+
+      {/* ── Modal "Vous avez la parole" ── */}
+      {floorModal.show && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100000,
+          backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            backgroundColor: '#111827', border: '2px solid #22c55e',
+            borderRadius: '20px', padding: '36px 44px',
+            textAlign: 'center', maxWidth: '400px', width: '90%',
+            boxShadow: '0 0 80px rgba(34,197,94,0.25)',
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎤</div>
+            <h2 style={{ color: '#22c55e', fontSize: '22px', fontWeight: 800, margin: '0 0 10px' }}>
+              On vous donne la parole
+            </h2>
+            <p style={{ color: '#d1d5db', fontSize: '14px', margin: '0 0 6px', fontWeight: 600 }}>
+              Vous allez être enregistré(e)
+            </p>
+            <p style={{ color: '#9ca3af', fontSize: '13px', margin: '0 0 28px', lineHeight: 1.6 }}>
+              Cliquez sur "Démarrer" pour activer votre micro.<br />
+              Parlez clairement — la transcription démarrera immédiatement.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  setFloorModal({ show: false, speakerName: '' });
+                  // startSpeechRef pointe sur startRecording(floorOfferName) dans SpeechBlocksPanel
+                  // Cet appel est dans la call stack d'un click → user gesture valide ✓
+                  startSpeechRef.current?.();
+                }}
+                style={{
+                  padding: '13px 32px', border: 'none', borderRadius: '10px',
+                  backgroundColor: '#22c55e', color: '#fff',
+                  fontWeight: 800, fontSize: '16px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  boxShadow: '0 0 0 4px rgba(34,197,94,0.3)',
+                  transition: 'transform 0.1s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.04)'; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+              >
+                🎤 Démarrer
+              </button>
+              <button
+                onClick={() => setFloorModal({ show: false, speakerName: '' })}
+                style={{
+                  padding: '13px 22px', border: '1px solid #374151', borderRadius: '10px',
+                  backgroundColor: 'transparent', color: '#9ca3af',
+                  fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+                }}
+              >
+                Plus tard
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

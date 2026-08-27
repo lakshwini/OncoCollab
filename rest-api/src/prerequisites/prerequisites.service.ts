@@ -19,6 +19,7 @@ import {
 } from './interfaces/prerequisite.interface';
 import { UpdatePrerequisitesDto } from './dto/update-prerequisite.dto';
 import { VideoGateway } from '../video/video.gateway';
+import { computeWorkflowId } from './workflow-link.util';
 
 @Injectable()
 export class PrerequisitesService {
@@ -199,6 +200,7 @@ export class PrerequisitesService {
             source: item.source ?? null,
             reference_id: item.reference_id ?? null,
             value: item.value ?? null,
+            workflow_id: computeWorkflowId(meeting.meeting_id, doctorId),
           }));
 
           return {
@@ -267,6 +269,7 @@ export class PrerequisitesService {
         source: item.source ?? null,
         reference_id: item.reference_id ?? null,
         value: item.value ?? null,
+        workflow_id: computeWorkflowId(meetingId, p.doctor_id),
       }));
 
       return {
