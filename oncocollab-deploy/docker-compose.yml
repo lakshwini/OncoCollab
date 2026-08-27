@@ -380,6 +380,7 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./data/mysql/olga:/docker-entrypoint-initdb.d:ro
     networks:
       olga:
         aliases:
@@ -411,6 +412,7 @@ services:
       MYSQL_PASSWORD: ${IMAGERIE_SQL_PASSWORD:-imagerie_password}
     volumes:
       - imagerie_mysql_data:/var/lib/mysql
+      - ./data/mysql/imagerie:/docker-entrypoint-initdb.d:ro
     networks:
       - oncocollab
     healthcheck:

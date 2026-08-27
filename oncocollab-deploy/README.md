@@ -127,7 +127,13 @@ bash data/mongo/restore.sh
 
 Ce script importe automatiquement la collection `meeting_prerequisites` (7 documents) dans MongoDB.
 
-> La base PostgreSQL est initialisée automatiquement (voir section ci-dessous), seul MongoDB nécessite cette étape manuelle.
+Idem pour la base MongoDB du module imagerie (OncoVision) :
+
+```bash
+bash data/mongo/imagerie/restore.sh
+```
+
+> Les bases PostgreSQL et MySQL (olga, imagerie) sont initialisées automatiquement au premier démarrage (voir sections ci-dessous). Seuls les deux MongoDB nécessitent cette étape manuelle — l'image Mongo officielle n'exécute pas les archives `.archive`/BSON placées dans `docker-entrypoint-initdb.d`, contrairement à Postgres/MySQL qui acceptent des `.sql`.
 
 ---
 
@@ -820,6 +826,18 @@ Ce script crée :
 
 MongoDB stocke les prérequis des réunions (`meeting_prerequisites`).  
 L'export contient **7 documents** — restauration via `bash data/mongo/restore.sh` après le démarrage.
+
+Le module imagerie (OncoVision) a sa propre instance MongoDB (rooms d'annotation collaborative), restaurée via `bash data/mongo/imagerie/restore.sh`.
+
+---
+
+## Bases MySQL (Olga, Imagerie)
+
+Les schémas et données sont initialisés automatiquement au premier démarrage :
+- `olga-mysql` via `data/mysql/olga/init.sql`
+- `imagerie-mysql` via `data/mysql/imagerie/init.sql`
+
+> Comme pour Postgres, ces scripts ne s'exécutent qu'une seule fois, lors du tout premier démarrage (tant que les volumes `mysql_data` / `imagerie_mysql_data` sont vides).
 
 ---
 
