@@ -11,6 +11,8 @@ Ce dossier contient tout le nécessaire pour lancer OncoCollab **sans code sourc
 - Connexion internet (téléchargement des images au premier lancement)
 
 > ℹ️ Toutes les images applicatives (`oncocollab-frontend`, `oncocollab-backend`, `oncocollab-python-pipeline`, `oncocollab-olga-designer`, `oncocollab-olga-admin`, `oncocollab-api-websocket`, `oncocollab-api-completion`, `oncocollab-imagerie-rest`, `oncocollab-imagerie-app`) doivent être publiées sur `${DOCKER_REGISTRY}` (Docker Hub) par l'équipe avant le déploiement.
+>
+> ⚠️ **Cas particulier du frontend** : React/Vite intègre les variables `VITE_*` (URL de l'API, Supabase, TURN...) **dans le bundle statique au moment du build**, pas au runtime. L'image `oncocollab-frontend` publiée sur le registre embarque donc déjà une configuration figée, définie par l'équipe au moment du build. Si vous devez pointer vers un backend/Supabase/TURN différent, demandez à l'équipe de reconstruire et republier l'image avec un `.env.frontend` mis à jour (aucune variable d'environnement de ce `docker-compose.yml` ne peut changer ce comportement après coup).
 
 ---
 
@@ -59,6 +61,13 @@ Ouvre chaque fichier et remplace les valeurs par les tiennes.
 | `SUPABASE_SERVICE_KEY` | Clé service Supabase |
 | `TURN_USERNAME` | Doit être identique à `.env` |
 | `TURN_PASSWORD` | Doit être identique à `.env` |
+| `PATHOCOLLAB_API_URL` | (Optionnel) URL de l'API PathoCollab — lames WSI exportées vers OncoVision |
+| `PATHOCOLLAB_AUTH_URL` | (Optionnel) URL du service d'auth PathoCollab (compte de service) |
+| `PATHOCOLLAB_SERVICE_EMAIL` / `PATHOCOLLAB_SERVICE_PASSWORD` | (Optionnel) Identifiants du compte de service PathoCollab |
+
+> ℹ️ **PathoCollab** est une application externe, non incluse dans ce `docker-compose.yml`. Sans elle, tout fonctionne normalement — seule l'intégration des lames PathoCollab dans OncoVision (module imagerie) sera indisponible.
+>
+> ℹ️ **Éditeur de workflows** : le backend est déjà câblé (`WORKFLOW_ORCHESTRATOR_URL`) pour joindre un orchestrateur tournant nativement sur l'hôte, port `9092` (via `host.docker.internal`, pas dans Docker). C'est une application séparée fournie par l'équipe ; sans elle, tout le reste fonctionne normalement — seule la fonctionnalité d'édition de workflows sera indisponible.
 
 #### `.env.postgres` — Base de données PostgreSQL
 | Variable | Description |
@@ -79,6 +88,13 @@ Ouvre chaque fichier et remplace les valeurs par les tiennes.
 | `MYSQL_ROOT_PASSWORD` | Mot de passe root MySQL (libre) |
 | `MYSQL_USER` | Nom d'utilisateur (libre) |
 | `MYSQL_PASSWORD` | Mot de passe (libre) |
+
+#### `olga-designer/.env.front` — Olga Designer / Admin (Vite)
+| Variable | Description |
+|---|---|
+| `VITE_BACKEND_URL` | URL de l'API Olga, accessible depuis le navigateur (`http://localhost:9091` par défaut) |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Doivent être identiques à `.env.backend` |
+| `VITE_TURN_URL` / `VITE_TURN_USERNAME` / `VITE_TURN_PASSWORD` | Doivent être identiques à `.env` / `.env.backend` |
 
 #### `olga-designer/config/config.json` — Firebase Olga
 Remplir avec les paramètres de ton projet Firebase.  
@@ -262,6 +278,36 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 { "doctor_id": "uuid-doctor" }
+```
+
+#### Lier une room OncoVision (annotation collaborative d'imagerie)
+```
+PATCH http://localhost:3002/meetings/:id/oncovision-room
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "oncovisionRoomId": "room-uuid" }
+
+Response 200: { id, oncovision_room_id, ... }
+
+⚠️ Accessible à tout participant de la réunion (pas réservé à l'organisateur) :
+n'importe quel participant peut être le premier à ouvrir l'onglet Imagerie.
+```
+
+---
+
+### 🧬 PathoCollab (intégration lames WSI)
+
+#### Obtenir un token PathoCollab (pour le frontend)
+```
+GET http://localhost:3002/pathocollab/token
+Authorization: Bearer <token>
+
+Response 200: { "access_token": "..." }
+
+ℹ️ Le backend obtient ce token côté serveur (compte de service) pour contourner
+le CORS de l'auth-service PathoCollab. Nécessite PATHOCOLLAB_* dans .env.backend
+(voir Étape 2) et une instance PathoCollab accessible — sinon endpoint indisponible.
 ```
 
 ---
@@ -762,7 +808,7 @@ socket.on('user-joined', (participant) => {
 Le schéma est initialisé automatiquement au premier démarrage via `data/postgres/init.sql`.
 
 Ce script crée :
-- Les tables principales : `roles`, `doctors`, `patients`, `rooms`, `meetings`, `messages`, `meeting_participants`, `meeting_patients`, `meeting_date_options`, `meeting_date_votes`, `prise_en_charge_patient`, `medical_images`, `status`
+- Les tables principales : `roles`, `doctors`, `patients`, `rooms`, `meetings` (avec `oncovision_room_id`), `messages`, `meeting_participants`, `meeting_patients`, `meeting_date_options`, `meeting_date_votes`, `prise_en_charge_patient`, `medical_images`, `status`, `users`
 - Les tables de rapports/transcriptions : `meeting_transcripts`, `meeting_reports`, `doctor_personal_files`, `transcription_blocks`
 - Les rôles de base : Oncologue, Médecin, Infirmier, Secrétaire
 
@@ -815,6 +861,7 @@ oncocollab-deploy/
 └── olga-designer/
     ├── .env.back.example           ← copier en .env.back et remplir
     ├── .env.mysql.example          ← copier en .env.mysql et remplir
+    ├── .env.front.example          ← copier en .env.front et remplir
     └── config/
         ├── config.json.example     ← copier en config.json et remplir (Firebase)
         ├── apiKey.json.example     ← copier en apiKey.json et remplir (Firebase)

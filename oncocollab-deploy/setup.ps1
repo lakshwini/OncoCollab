@@ -29,6 +29,7 @@ Copy-IfMissing ".env.postgres.example"                     ".env.postgres"
 Copy-IfMissing ".env.mongo.example"                        ".env.mongo"
 Copy-IfMissing "olga-designer\.env.back.example"           "olga-designer\.env.back"
 Copy-IfMissing "olga-designer\.env.mysql.example"          "olga-designer\.env.mysql"
+Copy-IfMissing "olga-designer\.env.front.example"          "olga-designer\.env.front"
 Copy-IfMissing "olga-designer\config\config.json.example"  "olga-designer\config\config.json"
 Copy-IfMissing "olga-designer\config\apiKey.json.example"  "olga-designer\config\apiKey.json"
 

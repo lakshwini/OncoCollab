@@ -48,6 +48,9 @@ services:
       LOCAL_REPORTS_DIR: /data/reports
       OLGA_BASE_URL: http://olga-api:9091
       ONCOVISION_BASE_URL: http://imagerie-rest:8000
+      # Éditeur de workflows (Api_Editeur_Workflow/Orchestrator) — tourne nativement sur
+      # l'hôte (pas dans Docker), d'où host.docker.internal plutôt qu'un alias réseau.
+      WORKFLOW_ORCHESTRATOR_URL: http://host.docker.internal:9092
       SPEECHCORE_API_URL: http://api-websocket:8000
       SPEECHCORE_COMPLETION_URL: http://api-completion:8001
       OLLAMA_HOST: http://ollama:11434
@@ -295,6 +298,8 @@ services:
     restart: unless-stopped
     ports:
       - "8082:80"
+    env_file:
+      - ./olga-designer/.env.front
     volumes:
       - ./olga-designer/config/config.json:/usr/share/nginx/html/config/config.json:ro
     depends_on:
@@ -317,6 +322,8 @@ services:
     restart: unless-stopped
     ports:
       - "8083:80"
+    env_file:
+      - ./olga-designer/.env.front
     volumes:
       - ./olga-designer/config/config.json:/usr/share/nginx/html/config/config.json:ro
     depends_on:

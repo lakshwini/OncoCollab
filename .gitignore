@@ -61,4 +61,4 @@ build-and-push.sh
 RapportGenarate/
 
 # Script de démarrage local (optionnel, non critique)
-start-dev.sholga/config/apiKey.json
+start-dev.sh
