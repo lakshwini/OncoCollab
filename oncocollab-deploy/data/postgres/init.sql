@@ -175,6 +175,7 @@ CREATE TABLE public.meetings (
     status text DEFAULT 'draft'::text NOT NULL,
     created_by uuid NOT NULL,
     postponed_reason text,
+    oncovision_room_id text,
     created_at timestamp without time zone DEFAULT now(),
     updated_at timestamp without time zone DEFAULT now(),
     CONSTRAINT meetings_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'scheduled'::text, 'live'::text, 'postponed'::text, 'finished'::text])))
